@@ -1,0 +1,38 @@
+{
+  "name": "vortex-chess-engine",
+  "version": "1.0.0",
+  "description": "A TypeScript chess engine targeting ~1600 Elo strength",
+  "main": "dist/vortex-engine.iife.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdulbarry-dev/vortex-chess-engine.git"
+  },
+  "keywords": [
+    "chess",
+    "chess-engine",
+    "typescript",
+    "game"
+  ],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/abdulbarry-dev/vortex-chess-engine/issues"
+  },
+  "homepage": "https://github.com/abdulbarry-dev/vortex-chess-engine#readme",
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@vitest/ui": "^4.0.14",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14"
+  }
+}
