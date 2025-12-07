@@ -99,6 +99,7 @@ export class SearchEngine {
       const stats = this.alphaBeta.getStats();
 
       return {
+        move: result.move, // Alias for bestMove
         bestMove: result.move,
         score: result.score,
         depth: searchDepth,
@@ -107,6 +108,7 @@ export class SearchEngine {
         pv: result.move ? [result.move] : [],
         isMate: Math.abs(result.score) > 90000,
         mateIn: undefined,
+        stats: stats,
       };
     }
   }
@@ -135,7 +137,7 @@ export class SearchEngine {
   /**
    * Get transposition table statistics
    */
-  getTranspositionTableStats(): { size: number; filled: number; fillRate: number } {
+  getTranspositionTableStats(): { size: number; filled: number; fillRate: number; entries: number } {
     return this.transpositionTable.getStats();
   }
 

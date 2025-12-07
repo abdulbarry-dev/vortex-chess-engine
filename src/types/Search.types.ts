@@ -9,6 +9,7 @@ import { Move } from './Move.types';
  * Result of a search operation
  */
 export interface SearchResult {
+  move: Move | null; // Alias for bestMove
   bestMove: Move | null;
   score: number;
   depth: number;
@@ -17,19 +18,22 @@ export interface SearchResult {
   pv: Move[];
   isMate: boolean;
   mateIn?: number;
+  stats: SearchStats; // Statistics about the search
 }
 
 /**
  * Search statistics for debugging
  */
 export interface SearchStats {
-  nodes: number;
+  nodesSearched: number; // Total nodes searched
+  nodes: number; // Alias for nodesSearched
   nodesByDepth: number[];
   ttHits: number;
   ttMisses: number;
   betaCutoffs: number;
   quiescenceNodes: number;
   timeMs: number;
+  nodesPerSecond: number; // Nodes per second
 }
 
 /**

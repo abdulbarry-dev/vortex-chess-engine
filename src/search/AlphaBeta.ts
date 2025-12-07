@@ -227,8 +227,13 @@ export class AlphaBetaSearch {
    * Get search statistics
    */
   getStats(): SearchStats {
-    this.stats.timeMs = Date.now() - this.startTime;
-    return { ...this.stats };
+    const elapsed = Date.now() - this.startTime;
+    return {
+      ...this.stats,
+      nodesSearched: this.stats.nodes,
+      timeMs: elapsed,
+      nodesPerSecond: elapsed > 0 ? Math.floor((this.stats.nodes * 1000) / elapsed) : 0,
+    };
   }
 
   /**
@@ -245,12 +250,14 @@ export class AlphaBetaSearch {
   private createEmptyStats(): SearchStats {
     return {
       nodes: 0,
+      nodesSearched: 0,
       nodesByDepth: [],
       ttHits: 0,
       ttMisses: 0,
       betaCutoffs: 0,
       quiescenceNodes: 0,
       timeMs: 0,
+      nodesPerSecond: 0,
     };
   }
 }

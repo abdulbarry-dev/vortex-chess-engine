@@ -128,7 +128,16 @@ export class IterativeDeepeningSearch {
       mateIn = Math.ceil(plies / 2);
     }
 
+    // Get final stats
+    const finalStats = this.alphaBeta.getStats();
+    finalStats.nodes = totalNodes; // Update with total from all iterations
+    finalStats.nodesSearched = totalNodes;
+    if (timeMs > 0) {
+      finalStats.nodesPerSecond = Math.floor((totalNodes * 1000) / timeMs);
+    }
+
     return {
+      move: bestMove, // Alias for bestMove
       bestMove,
       score: bestScore,
       depth,
@@ -137,6 +146,7 @@ export class IterativeDeepeningSearch {
       pv,
       isMate,
       mateIn,
+      stats: finalStats,
     };
   }
 

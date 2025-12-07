@@ -72,7 +72,7 @@ export class TranspositionTable {
     }
     
     const shouldReplace =
-      existing.zobristKey === key ||
+      (existing.zobristKey === key && depth >= existing.depth) ||
       depth > existing.depth ||
       (depth === existing.depth && this.age > existing.age);
 
@@ -176,12 +176,13 @@ export class TranspositionTable {
   /**
    * Get table statistics
    */
-  getStats(): { size: number; filled: number; fillRate: number } {
+  getStats(): { size: number; filled: number; fillRate: number; entries: number } {
     const filled = this.table.filter(e => e !== null).length;
     return {
       size: this.size,
       filled,
       fillRate: filled / this.size,
+      entries: filled, // Alias for filled
     };
   }
 
