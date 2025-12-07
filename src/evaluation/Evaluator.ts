@@ -42,20 +42,20 @@ export class Evaluator {
   private readonly pieceSquare: PieceSquareEvaluator;
   private readonly pawnStructure: PawnStructureEvaluator;
   private readonly kingSafety: KingSafetyEvaluator;
-  private readonly mobility: MobilityEvaluator;
+  private readonly mobility: MobilityEvaluator | null;
 
   constructor(
-    material: MaterialEvaluator,
-    pieceSquare: PieceSquareEvaluator,
-    pawnStructure: PawnStructureEvaluator,
-    kingSafety: KingSafetyEvaluator,
-    mobility: MobilityEvaluator
+    material?: MaterialEvaluator,
+    pieceSquare?: PieceSquareEvaluator,
+    pawnStructure?: PawnStructureEvaluator,
+    kingSafety?: KingSafetyEvaluator,
+    mobility?: MobilityEvaluator | null
   ) {
-    this.material = material;
-    this.pieceSquare = pieceSquare;
-    this.pawnStructure = pawnStructure;
-    this.kingSafety = kingSafety;
-    this.mobility = mobility;
+    this.material = material || new MaterialEvaluator();
+    this.pieceSquare = pieceSquare || new PieceSquareEvaluator();
+    this.pawnStructure = pawnStructure || new PawnStructureEvaluator();
+    this.kingSafety = kingSafety || new KingSafetyEvaluator();
+    this.mobility = mobility || null; // Null = skip mobility evaluation
   }
 
   /**
@@ -84,7 +84,9 @@ export class Evaluator {
     score += this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
 
     // Mobility
-    score += this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
+    if (this.mobility) {
+      score += this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
+    }
 
     return Math.round(score);
   }
@@ -140,7 +142,7 @@ export class Evaluator {
     const pieceSquare = this.pieceSquare.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PIECE_SQUARE;
     const pawnStructure = this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
     const kingSafety = this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
-    const mobility = this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
+    const mobility = this.mobility ? this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY : 0;
 
     return {
       material,

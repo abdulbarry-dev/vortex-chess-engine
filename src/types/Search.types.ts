@@ -14,6 +14,43 @@ export interface SearchResult {
   depth: number;
   nodes: number;
   timeMs: number;
+  pv: Move[];
+  isMate: boolean;
+  mateIn?: number;
+}
+
+/**
+ * Search statistics for debugging
+ */
+export interface SearchStats {
+  nodes: number;
+  nodesByDepth: number[];
+  ttHits: number;
+  ttMisses: number;
+  betaCutoffs: number;
+  quiescenceNodes: number;
+  timeMs: number;
+}
+
+/**
+ * Search configuration
+ */
+export interface SearchConfig {
+  maxDepth: number;
+  timeLimitMs?: number;
+  useIterativeDeepening: boolean;
+  useTranspositionTable: boolean;
+  useQuiescence: boolean;
+  useMoveOrdering: boolean;
+}
+
+/**
+ * Transposition table entry types
+ */
+export enum TTEntryType {
+  Exact = 0,
+  Alpha = 1,
+  Beta = 2,
 }
 
 /**
