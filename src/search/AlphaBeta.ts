@@ -148,6 +148,23 @@ export class AlphaBetaSearch {
       return this.evaluator.evaluate(board, state);
     }
 
+    // Null Move Pruning (NMP)
+    // If we can pass (do nothing) and still cause beta cutoff, position is too good
+    const canDoNullMove = depth >= 3 && !isInCheck(board, state.currentPlayer) && ply > 0;
+    if (canDoNullMove) {
+      // Make null move (just switch turns)
+      const stateCopy = state.clone();
+      stateCopy.switchTurn();
+      
+      // Search with reduced depth (R=2)
+      const nullScore = -this.search(board, stateCopy, depth - 3, -beta, -beta + 1, ply + 1);
+      
+      // If null move causes cutoff, prune this branch
+      if (nullScore >= beta) {
+        return beta; // Fail-high
+      }
+    }
+
     // Generate legal moves
     const moves = this.moveGenerator.generateLegalMoves(board, state);
 
@@ -164,9 +181,12 @@ export class AlphaBetaSearch {
     }
 
     let bestScore = -Infinity;
+    let moveCount = 0;
 
     // Search each move
     for (const move of moves) {
+      moveCount++;
+      
       // Make move (clone board and state)
       const boardCopy = board.clone();
       const stateCopy = state.clone();
@@ -176,8 +196,30 @@ export class AlphaBetaSearch {
       boardCopy.setPiece(move.from, null);
       stateCopy.switchTurn();
 
-      // Recursive search
-      const score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, ply + 1);
+      let score: number;
+
+      // Late Move Reductions (LMR)
+      // Search later moves with reduced depth first
+      const canReduceDepth = 
+        depth >= 3 &&
+        moveCount > 4 &&
+        !move.captured &&
+        !move.promotion &&
+        !isInCheck(boardCopy, stateCopy.currentPlayer);
+
+      if (canReduceDepth) {
+        // Search with reduced depth first
+        const reduction = moveCount > 8 ? 2 : 1;
+        score = -this.search(boardCopy, stateCopy, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+        
+        // If reduced search failed high, re-search at full depth
+        if (score > alpha) {
+          score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, ply + 1);
+        }
+      } else {
+        // Normal search at full depth
+        score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, ply + 1);
+      }
 
       // Update best score
       if (score > bestScore) {
