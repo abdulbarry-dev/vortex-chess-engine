@@ -31,6 +31,24 @@ export function squareToCoords(square: Square): Coords {
 }
 
 /**
+ * Get file (column) from square index
+ * @param square Square index (0-63)
+ * @returns File index (0-7, where 0=a, 7=h)
+ */
+export function getFile(square: Square): number {
+  return square % 8;
+}
+
+/**
+ * Get rank (row) from square index
+ * @param square Square index (0-63)
+ * @returns Rank index (0-7, where 0=rank 1, 7=rank 8)
+ */
+export function getRank(square: Square): number {
+  return Math.floor(square / 8);
+}
+
+/**
  * Convert rank/file coordinates to a square index
  * @param rank Rank (0-7)
  * @param file File (0-7)
