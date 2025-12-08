@@ -67,24 +67,41 @@ export class Evaluator {
    * @returns Evaluation score in centipawns
    */
   evaluate(board: Board, state: GameState): number {
-    const isEndgame = this.isEndgame(board);
+    // Material evaluation (most important) - always fast
+    const materialScore = this.material.evaluate(board) * EVALUATION_WEIGHTS.MATERIAL;
 
-    let score = 0;
+    // Quick endgame check (inlined for performance)
+    let totalMaterial = 0;
+    let queenCount = 0;
+    for (const [_square, piece] of board.getAllPieces()) {
+      if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
+        totalMaterial += 320;
+      } else if (piece.type === PieceType.Rook) {
+        totalMaterial += 500;
+      } else if (piece.type === PieceType.Queen) {
+        totalMaterial += 900;
+        queenCount++;
+      }
+    }
+    const isEndgame = queenCount === 0 || totalMaterial < ENDGAME_MATERIAL_THRESHOLD;
 
-    // Material evaluation (most important)
-    score += this.material.evaluate(board) * EVALUATION_WEIGHTS.MATERIAL;
+    // Piece-square tables (positional evaluation) - fast lookup
+    const pieceSquareScore = this.pieceSquare.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PIECE_SQUARE;
 
-    // Piece-square tables (positional evaluation)
-    score += this.pieceSquare.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PIECE_SQUARE;
+    // Combined base score
+    let score = materialScore + pieceSquareScore;
 
-    // Pawn structure
-    score += this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
+    // Only compute expensive evaluations if weights are non-zero
+    if (EVALUATION_WEIGHTS.PAWN_STRUCTURE > 0) {
+      score += this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
+    }
 
-    // King safety (important in middlegame)
-    score += this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
+    if (EVALUATION_WEIGHTS.KING_SAFETY > 0) {
+      score += this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
+    }
 
-    // Mobility
-    if (this.mobility) {
+    // Mobility is expensive, only calculate if needed
+    if (this.mobility && EVALUATION_WEIGHTS.MOBILITY > 0) {
       score += this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
     }
 

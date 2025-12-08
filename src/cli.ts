@@ -10,11 +10,11 @@
 import * as readline from 'readline';
 import { Board } from './core/Board';
 import { GameState } from './core/GameState';
-import { Color } from './core/Piece';
+import { Color, PieceType } from './core/Piece';
 import { Evaluator } from './evaluation/Evaluator';
 import { MoveGenerator } from './move-generation/MoveGenerator';
 import { SearchEngine } from './search/SearchEngine';
-import { Move } from './types/Move.types';
+import { Move, MoveFlags } from './types/Move.types';
 import { parseFen } from './utils/FenParser';
 
 /**
@@ -183,15 +183,8 @@ class UciInterface {
       try {
         const move = this.parseUciMove(moveStr);
         if (move) {
-          // Apply the move manually
-          const piece = this.board.getPiece(move.from);
-          if (piece) {
-            this.board.setPiece(move.from, null);
-            this.board.setPiece(move.to, piece);
-            
-            // Update game state
-            this.state.currentPlayer = this.state.currentPlayer === Color.White ? Color.Black : Color.White;
-          }
+          // Properly apply the move using makeMove (handles castling, en passant, promotions)
+          this.makeMove(move);
         }
       } catch (error) {
         if (error instanceof Error) {
@@ -199,6 +192,114 @@ class UciInterface {
         }
         break;
       }
+    }
+  }
+
+  /**
+   * Properly apply a move to the board
+   * Handles castling, en passant, promotions, and state updates
+   */
+  private makeMove(move: Move): void {
+    const piece = this.board.getPiece(move.from);
+    if (!piece) return;
+
+    // Clear en passant square from previous move
+    const previousEnPassant = this.state.enPassantSquare;
+    this.state.enPassantSquare = null;
+
+    // Handle castling
+    if (move.flags & MoveFlags.Castle) {
+      // Move king
+      this.board.setPiece(move.from, null);
+      this.board.setPiece(move.to, piece);
+      
+      // Move rook
+      const isKingside = move.to > move.from;
+      if (isKingside) {
+        const rookFrom = move.from + 3;
+        const rookTo = move.from + 1;
+        const rook = this.board.getPiece(rookFrom);
+        if (rook) {
+          this.board.setPiece(rookFrom, null);
+          this.board.setPiece(rookTo, rook);
+        }
+      } else {
+        const rookFrom = move.from - 4;
+        const rookTo = move.from - 1;
+        const rook = this.board.getPiece(rookFrom);
+        if (rook) {
+          this.board.setPiece(rookFrom, null);
+          this.board.setPiece(rookTo, rook);
+        }
+      }
+    }
+    // Handle en passant capture
+    else if (move.flags & MoveFlags.EnPassant) {
+      this.board.setPiece(move.from, null);
+      this.board.setPiece(move.to, piece);
+      
+      // Remove captured pawn
+      if (previousEnPassant !== null) {
+        const captureRank = Math.floor(move.from / 8);
+        const captureFile = previousEnPassant % 8;
+        const captureSquare = captureRank * 8 + captureFile;
+        this.board.setPiece(captureSquare, null);
+      }
+    }
+    // Handle promotion
+    else if (move.promotion) {
+      this.board.setPiece(move.from, null);
+      this.board.setPiece(move.to, {
+        type: move.promotion,
+        color: piece.color
+      });
+    }
+    // Regular move
+    else {
+      this.board.setPiece(move.from, null);
+      this.board.setPiece(move.to, piece);
+    }
+
+    // Set en passant square if double pawn push
+    if (move.flags & MoveFlags.DoublePawnPush) {
+      const direction = piece.color === Color.White ? -1 : 1;
+      this.state.enPassantSquare = move.to + (direction * 8);
+    }
+
+    // Update castling rights
+    if (piece.type === PieceType.King) {
+      if (piece.color === Color.White) {
+        this.state.castlingRights.white.kingSide = false;
+        this.state.castlingRights.white.queenSide = false;
+      } else {
+        this.state.castlingRights.black.kingSide = false;
+        this.state.castlingRights.black.queenSide = false;
+      }
+    }
+    if (piece.type === PieceType.Rook) {
+      // Check if rook moved from initial square
+      if (piece.color === Color.White) {
+        if (move.from === 0) this.state.castlingRights.white.queenSide = false;
+        if (move.from === 7) this.state.castlingRights.white.kingSide = false;
+      } else {
+        if (move.from === 56) this.state.castlingRights.black.queenSide = false;
+        if (move.from === 63) this.state.castlingRights.black.kingSide = false;
+      }
+    }
+
+    // Switch sides
+    this.state.currentPlayer = this.state.currentPlayer === Color.White ? Color.Black : Color.White;
+    
+    // Update move counters
+    if (piece.color === Color.Black) {
+      this.state.fullmoveNumber++;
+    }
+    
+    // Reset halfmove clock on pawn move or capture
+    if (piece.type === PieceType.Pawn || move.captured) {
+      this.state.halfmoveClock = 0;
+    } else {
+      this.state.halfmoveClock++;
     }
   }
 
@@ -261,6 +362,12 @@ class UciInterface {
 
     // Parse search parameters
     let depth = 6; // Default depth
+    let timeLimitMs: number | undefined;
+    let wtime = 0;
+    let btime = 0;
+    let winc = 0;
+    let binc = 0;
+    let movestogo = 40; // Default moves to go
 
     for (let i = 0; i < args.length; i++) {
       switch (args[i]) {
@@ -269,38 +376,119 @@ class UciInterface {
           i++;
           break;
         case 'movetime':
-          depth = 6; // Use fixed depth for movetime
+          timeLimitMs = parseInt(args[i + 1] || '5000');
           i++;
           break;
         case 'infinite':
-          depth = 12; // Search deeper for infinite
+          depth = 12;
+          timeLimitMs = undefined;
           break;
         case 'wtime':
-        case 'btime':
-        case 'winc':
-        case 'binc':
-          // TODO: Implement time management
+          wtime = parseInt(args[i + 1] || '0');
           i++;
           break;
+        case 'btime':
+          btime = parseInt(args[i + 1] || '0');
+          i++;
+          break;
+        case 'winc':
+          winc = parseInt(args[i + 1] || '0');
+          i++;
+          break;
+        case 'binc':
+          binc = parseInt(args[i + 1] || '0');
+          i++;
+          break;
+        case 'movestogo':
+          movestogo = parseInt(args[i + 1] || '40');
+          i++;
+          break;
+      }
+    }
+
+    // Calculate time allocation if time control is provided
+    if (!timeLimitMs && (wtime > 0 || btime > 0)) {
+      const ourTime = this.state.currentPlayer === Color.White ? wtime : btime;
+      const ourInc = this.state.currentPlayer === Color.White ? winc : binc;
+      
+      // Time management strategy:
+      // - Allocate time based on moves to go
+      // - Add increment to our allocation
+      // - Keep safety margin (don't use all time)
+      const safetyMargin = 50; // 50ms buffer
+      const baseTime = Math.max(0, ourTime - safetyMargin);
+      
+      // Calculate time per move
+      // Use movestogo, but assume at least 20 moves remaining if not specified
+      const effectiveMovesToGo = Math.max(movestogo, 20);
+      timeLimitMs = Math.floor(baseTime / effectiveMovesToGo) + Math.floor(ourInc * 0.8);
+      
+      // Minimum time: 100ms, Maximum: 50% of remaining time
+      timeLimitMs = Math.max(100, Math.min(timeLimitMs, baseTime / 2));
+      
+      // Adjust depth based on available time
+      if (timeLimitMs < 500) {
+        depth = Math.min(depth, 4);
+      } else if (timeLimitMs < 2000) {
+        depth = Math.min(depth, 5);
       }
     }
 
     // Perform search asynchronously
     setImmediate(() => {
       try {
-        const result = this.search.findBestMove(this.board, this.state, depth);
+        const result = this.search.findBestMove(this.board, this.state, depth, timeLimitMs);
         
+        // Validate that we have a legal move
         if (result.bestMove) {
-          const moveStr = this.moveToUci(result.bestMove);
-          this.send(`bestmove ${moveStr}`);
+          // Double-check move is legal
+          const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
+          const isLegal = legalMoves.some(m => 
+            m.from === result.bestMove!.from && 
+            m.to === result.bestMove!.to &&
+            (!m.promotion || m.promotion === result.bestMove!.promotion)
+          );
+          
+          if (isLegal) {
+            const moveStr = this.moveToUci(result.bestMove);
+            this.send(`info depth ${result.depth || depth} score cp ${result.score} nodes ${result.nodes}`);
+            this.send(`bestmove ${moveStr}`);
+          } else {
+            this.send('info string Search returned illegal move');
+            // Return first legal move as fallback
+            if (legalMoves.length > 0 && legalMoves[0]) {
+              const moveStr = this.moveToUci(legalMoves[0]);
+              this.send(`bestmove ${moveStr}`);
+            } else {
+              this.send('bestmove 0000');
+            }
+          }
         } else {
-          this.send('bestmove 0000');
+          // No move found, return first legal move
+          const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
+          if (legalMoves.length > 0 && legalMoves[0]) {
+            const moveStr = this.moveToUci(legalMoves[0]);
+            this.send(`bestmove ${moveStr}`);
+          } else {
+            this.send('bestmove 0000');
+          }
         }
       } catch (error) {
         if (error instanceof Error) {
           this.send(`info string Search error: ${error.message}`);
         }
-        this.send('bestmove 0000');
+        // Try to return a legal move even on error
+        try {
+          const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
+          if (legalMoves.length > 0 && legalMoves[0]) {
+            const moveStr = this.moveToUci(legalMoves[0]);
+            this.send(`bestmove ${moveStr}`);
+          } else {
+            this.send('bestmove 0000');
+          }
+        } catch {
+          this.send('bestmove 0000');
+        }
       } finally {
         this.isSearching = false;
       }

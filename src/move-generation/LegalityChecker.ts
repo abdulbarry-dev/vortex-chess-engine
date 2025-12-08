@@ -54,12 +54,16 @@ export function isMoveLegal(
     return isCastlingLegal(board, move);
   }
   
-  // Make the move temporarily
+  // Cache original pieces for unmake
   const originalFromPiece = board.getPiece(move.from);
   const originalToPiece = board.getPiece(move.to);
   
+  // Quick exit: if originalFromPiece is null, move is invalid
+  if (!originalFromPiece) return false;
+  
   // Handle en passant capture (captured pawn is not on target square)
   let enPassantCaptureSquare: number | null = null;
+  let capturedEnPassantPiece = null;
   if (move.flags & MoveFlags.EnPassant) {
     const epSquare = state.enPassantSquare;
     if (epSquare !== null) {
@@ -67,6 +71,7 @@ export function isMoveLegal(
       // Captured pawn is on same rank as moving pawn, not on en passant square
       const captureRank = Math.floor(move.from / 8);
       enPassantCaptureSquare = coordsToSquare(captureRank, epFile);
+      capturedEnPassantPiece = board.getPiece(enPassantCaptureSquare);
     }
   }
   
@@ -84,7 +89,7 @@ export function isMoveLegal(
     ? move.to 
     : board.findKing(move.piece.color);
   
-  // Check if king is in check
+  // Check if king is in check (early exit if no king found)
   const isInCheck = kingSquare !== null && isSquareAttacked(
     board,
     kingSquare,
@@ -96,8 +101,8 @@ export function isMoveLegal(
   board.setPiece(move.to, originalToPiece);
   
   // Restore captured pawn for en passant
-  if (enPassantCaptureSquare !== null && move.captured) {
-    board.setPiece(enPassantCaptureSquare, move.captured);
+  if (enPassantCaptureSquare !== null && capturedEnPassantPiece) {
+    board.setPiece(enPassantCaptureSquare, capturedEnPassantPiece);
   }
   
   return !isInCheck;
