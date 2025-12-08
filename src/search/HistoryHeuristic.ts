@@ -48,7 +48,8 @@ export class HistoryHeuristic {
     for (let piece = 0; piece < NUM_PIECES; piece++) {
       table[piece] = [];
       for (let from = 0; from < BOARD_SIZE; from++) {
-        table[piece][from] = new Array(BOARD_SIZE).fill(0);
+        if (!table[piece]) table[piece] = [];
+        table[piece]![from] = new Array(BOARD_SIZE).fill(0);
       }
     }
     return table;
@@ -157,7 +158,7 @@ export class HistoryHeuristic {
       for (let from = 0; from < BOARD_SIZE; from++) {
         for (let to = 0; to < BOARD_SIZE; to++) {
           if (table[piece]?.[from]?.[to]) {
-            table[piece][from][to] = Math.floor(table[piece][from][to] / 2);
+            table[piece]![from]![to] = Math.floor(table[piece]![from]![to]! / 2);
           }
         }
       }
@@ -285,10 +286,16 @@ export class HistoryHeuristic {
     const table = this.createHistoryTable();
 
     for (let piece = 0; piece < NUM_PIECES && piece < data.length; piece++) {
-      for (let from = 0; from < BOARD_SIZE && from < data[piece].length; from++) {
-        for (let to = 0; to < BOARD_SIZE && to < data[piece][from].length; to++) {
+      const pieceData = data[piece];
+      if (!pieceData) continue;
+      
+      for (let from = 0; from < BOARD_SIZE && from < pieceData.length; from++) {
+        const fromData = pieceData[from];
+        if (!fromData) continue;
+        
+        for (let to = 0; to < BOARD_SIZE && to < fromData.length; to++) {
           if (table[piece]?.[from]) {
-            table[piece][from][to] = Math.min(data[piece][from][to], this.maxHistory);
+            table[piece]![from]![to] = Math.min(fromData[to]!, this.maxHistory);
           }
         }
       }

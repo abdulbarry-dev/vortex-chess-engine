@@ -101,7 +101,7 @@ export class FutilityPruning {
     state: GameState,
     depth: number,
     alpha: number,
-    beta: number,
+    _beta: number,
     isPvNode: boolean = false
   ): boolean {
     this.statistics.totalChecks++;
@@ -172,7 +172,7 @@ export class FutilityPruning {
     move: Move,
     depth: number,
     alpha: number,
-    beta: number,
+    _beta: number,
     staticEval?: number
   ): boolean {
     // Don't prune tactical moves

@@ -149,7 +149,7 @@ export class LateMoveReduction {
    * @param move Move to check
    * @returns True if move is tactical
    */
-  private isTacticalMove(board: Board, state: GameState, move: Move): boolean {
+  private isTacticalMove(_board: Board, _state: GameState, move: Move): boolean {
     // Captures
     if (move.flags & MoveFlags.Capture) {
       return true;

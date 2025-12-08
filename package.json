@@ -4,12 +4,21 @@
   "description": "A TypeScript chess engine targeting ~1600 Elo strength",
   "main": "dist/vortex-engine.iife.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "vortex-engine": "./dist/cli.js"
+  },
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
+    "build:cli": "tsc src/cli.ts --outDir dist --module commonjs --target es2020 --moduleResolution node --esModuleInterop --skipLibCheck && chmod +x dist/cli.js",
+    "build:all": "npm run build && npm run build:cli",
+    "start": "node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:self": "./scripts/self-test.sh",
+    "test:performance": "tsx scripts/elo-test.ts",
+    "test:cutechess": "npm run build:all && cutechess-cli -engine cmd=\"$PWD/dist/cli.js\" name=\"Vortex\" -engine cmd=stockfish name=\"Stockfish\" option.\"Skill Level\"=5 -each proto=uci tc=40/60 -rounds 10 -repeat -pgnout games.pgn",
     "typecheck": "tsc --noEmit"
   },
   "repository": {

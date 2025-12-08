@@ -198,8 +198,8 @@ export class EndgameTablebase {
    */
   private checkBasicMates(
     material: MaterialCount,
-    board: Board,
-    state: GameState
+    _board: Board,
+    state: GameState,
   ): EndgameResult | null {
     // KQvK - white wins
     if (
@@ -279,7 +279,7 @@ export class EndgameTablebase {
   private checkKPvK(
     material: MaterialCount,
     board: Board,
-    state: GameState
+    _state: GameState
   ): EndgameResult | null {
     // KPvK - white pawn
     if (

@@ -91,7 +91,7 @@ export class NullMovePruning {
     board: Board,
     state: GameState,
     depth: number,
-    beta: number,
+    _beta: number,
     inCheck: boolean,
     nullMoveUsed: boolean
   ): boolean {

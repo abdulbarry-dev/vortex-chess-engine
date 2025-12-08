@@ -15,7 +15,6 @@ import { SearchConfig, SearchResult } from '../types/Search.types';
 import { AlphaBetaSearch } from './AlphaBeta';
 import { IterativeDeepeningSearch } from './IterativeDeepening';
 import { MoveOrderer } from './MoveOrdering';
-import { QuiescenceSearch } from './QuiescenceSearch';
 import { TranspositionTable } from './TranspositionTable';
 import { ZobristHasher } from './ZobristHashing';
 
@@ -27,15 +26,13 @@ import { ZobristHasher } from './ZobristHashing';
  * move ordering, and quiescence search.
  */
 export class SearchEngine {
-  // @ts-expect-error - Used for component initialization
-  private readonly evaluator: Evaluator;
-  // @ts-expect-error - Used for component initialization
-  private readonly moveGenerator: MoveGenerator;
+  // Stored for potential future use
+  // private readonly evaluator: Evaluator;
+  // private readonly moveGenerator: MoveGenerator;
   private readonly alphaBeta: AlphaBetaSearch;
   private readonly transpositionTable: TranspositionTable;
   private readonly moveOrderer: MoveOrderer;
-  // @ts-expect-error - TODO: integrate quiescence into alpha-beta
-  private readonly quiescenceSearch: QuiescenceSearch;
+  // private readonly quiescenceSearch: QuiescenceSearch;
   private readonly iterativeDeepening: IterativeDeepeningSearch;
   private readonly zobristHasher: ZobristHasher;
   private config: SearchConfig;
@@ -44,14 +41,14 @@ export class SearchEngine {
     evaluator: Evaluator,
     moveGenerator: MoveGenerator
   ) {
-    this.evaluator = evaluator;
-    this.moveGenerator = moveGenerator;
+    // this.evaluator = evaluator;
+    // this.moveGenerator = moveGenerator;
 
     // Initialize search components
     this.alphaBeta = new AlphaBetaSearch(evaluator, moveGenerator);
     this.transpositionTable = new TranspositionTable();
     this.moveOrderer = new MoveOrderer();
-    this.quiescenceSearch = new QuiescenceSearch(evaluator, moveGenerator);
+    // QuiescenceSearch is integrated into AlphaBetaSearch directly
     this.zobristHasher = new ZobristHasher();
     this.iterativeDeepening = new IterativeDeepeningSearch(
       this.alphaBeta,

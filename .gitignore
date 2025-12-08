@@ -31,3 +31,8 @@ coverage/
 package-lock.json
 .github/
 docs/
+# Test output files
+*.pgn
+
+# Temporary test files
+/tmp/vortex-test.txt

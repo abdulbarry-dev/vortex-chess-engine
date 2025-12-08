@@ -187,7 +187,7 @@ export class PrincipalVariationSearch {
     score: number,
     alpha: number,
     beta: number,
-    isPVNode: boolean
+    _isPVNode: boolean
   ): NodeType {
     let nodeType: NodeType;
 

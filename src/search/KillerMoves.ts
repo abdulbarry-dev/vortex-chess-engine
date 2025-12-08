@@ -49,10 +49,10 @@ export class KillerMoves {
     if (!killerRow) return;
 
     // Don't store if it's already the primary killer
-    if (this.isSameMove(killerRow[0], move)) return;
+    if (this.isSameMove(killerRow[0] ?? null, move)) return;
 
     // Shift killers: move secondary to position 1, store new as primary
-    killerRow[1] = killerRow[0];
+    killerRow[1] = killerRow[0] ?? null;
     killerRow[0] = move;
   }
 
@@ -70,8 +70,8 @@ export class KillerMoves {
     if (!killerRow) return false;
 
     return (
-      this.isSameMove(killerRow[0], move) ||
-      this.isSameMove(killerRow[1], move)
+      this.isSameMove(killerRow[0] ?? null, move) ||
+      this.isSameMove(killerRow[1] ?? null, move)
     );
   }
 
@@ -89,10 +89,10 @@ export class KillerMoves {
     const killerRow = this.killers[ply];
     if (!killerRow) return 0;
 
-    if (this.isSameMove(killerRow[0], move)) {
+    if (this.isSameMove(killerRow[0] ?? null, move)) {
       return 9000; // Primary killer
     }
-    if (this.isSameMove(killerRow[1], move)) {
+    if (this.isSameMove(killerRow[1] ?? null, move)) {
       return 8000; // Secondary killer
     }
 
