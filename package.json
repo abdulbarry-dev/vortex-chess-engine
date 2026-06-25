@@ -18,6 +18,7 @@
     "test:ui": "vitest --ui",
     "test:self": "./scripts/self-test.sh",
     "test:performance": "tsx scripts/elo-test.ts",
+    "tune": "tsx scripts/texel-tuning.ts",
     "test:cutechess": "npm run build:all && cutechess-cli -engine cmd=\"$PWD/dist/cli.js\" name=\"Vortex\" -engine cmd=stockfish name=\"Stockfish\" option.\"Skill Level\"=5 -each proto=uci tc=40/60 -rounds 10 -repeat -pgnout games.pgn",
     "typecheck": "tsc --noEmit"
   },
