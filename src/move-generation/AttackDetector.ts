@@ -1,17 +1,25 @@
 /**
  * @file AttackDetector.ts
- * @description Detect if a square is under attack
+ * @description Detect if a square is under attack using bitboard lookups.
  */
 
+import {
+  getBishopAttacks,
+  getRookAttacks,
+  KING_ATTACKS,
+  KNIGHT_ATTACKS,
+  PAWN_ATTACKS,
+  pawnAttackIndex,
+} from '../bitboard/AttackTables';
+
 import { Board } from '../core/Board';
-import { Color, Piece, PieceType } from '../core/Piece';
-import { coordsToSquare, Square, squareToCoords } from '../core/Square';
-import { DIAGONAL_DIRECTIONS, Direction, ORTHOGONAL_DIRECTIONS } from './SlidingMoves';
+import { Color, PieceType } from '../core/Piece';
+import { Square } from '../core/Square';
 
 /**
- * Check if a square is attacked by the given color
- * This is used for king safety checks and castling validation
- * 
+ * Check if a square is attacked by the given color.
+ * Uses bitboard attack tables for O(1) leaper checks and fast slider checks.
+ *
  * @param board Current board state
  * @param square Square to check
  * @param attackingColor Color of the attacking pieces
@@ -22,23 +30,43 @@ export function isSquareAttacked(
   square: Square,
   attackingColor: Color
 ): boolean {
-  // Check for pawn attacks
-  if (isAttackedByPawn(board, square, attackingColor)) {
+  const occupancy = board.getOccupancy();
+
+  // 1. Pawn attacks — check if any enemy pawn attacks this square
+  const enemyPawns = board.getPieceBitboard(PieceType.Pawn, attackingColor);
+  // Instead of looking at pawn attacks FROM enemy pawns, we look at the
+  // *reverse* pawn attacks from the target square to see if they hit an enemy pawn.
+  // Reverse: if we're checking attacks by White, we look at Black's pawn attack
+  // pattern from the target square and see if it overlaps with White pawns.
+  const reversePawnIdx = pawnAttackIndex(attackingColor === Color.White ? Color.Black : Color.White);
+  if (((PAWN_ATTACKS[reversePawnIdx]?.[square]) ?? 0n) & enemyPawns) {
     return true;
   }
 
-  // Check for knight attacks
-  if (isAttackedByKnight(board, square, attackingColor)) {
+  // 2. Knight attacks
+  const enemyKnights = board.getPieceBitboard(PieceType.Knight, attackingColor);
+  if (((KNIGHT_ATTACKS[square]) ?? 0n) & enemyKnights) {
     return true;
   }
 
-  // Check for sliding piece attacks (bishops, rooks, queens)
-  if (isAttackedBySlidingPiece(board, square, attackingColor)) {
+  // 3. King attacks
+  const enemyKings = board.getPieceBitboard(PieceType.King, attackingColor);
+  if (((KING_ATTACKS[square]) ?? 0n) & enemyKings) {
     return true;
   }
 
-  // Check for king attacks
-  if (isAttackedByKing(board, square, attackingColor)) {
+  // 4. Bishop/Queen attacks (diagonal)
+  const enemyBishops = board.getPieceBitboard(PieceType.Bishop, attackingColor);
+  const enemyQueens = board.getPieceBitboard(PieceType.Queen, attackingColor);
+  const bishopAttacks = getBishopAttacks(square, occupancy);
+  if (bishopAttacks & (enemyBishops | enemyQueens)) {
+    return true;
+  }
+
+  // 5. Rook/Queen attacks (orthogonal)
+  const enemyRooks = board.getPieceBitboard(PieceType.Rook, attackingColor);
+  const rookAttacks = getRookAttacks(square, occupancy);
+  if (rookAttacks & (enemyRooks | enemyQueens)) {
     return true;
   }
 
@@ -46,168 +74,100 @@ export function isSquareAttacked(
 }
 
 /**
- * Check if square is attacked by an enemy pawn
+ * Get a bitboard of all squares attacked by a given color.
+ *
+ * @param board Current board state
+ * @param attackingColor Color to query attacks for
+ * @returns Bitboard of all attacked squares
  */
-function isAttackedByPawn(
+export function getAttackedSquares(
   board: Board,
-  square: Square,
   attackingColor: Color
-): boolean {
-  const { rank, file } = squareToCoords(square);
-  
-  // Pawns attack diagonally one square
-  // White pawns attack upward (rank+1), black pawns attack downward (rank-1)
-  const pawnDirection = attackingColor === Color.White ? 1 : -1;
-  const pawnRank = rank - pawnDirection; // Reverse direction to find attacking pawn
+): bigint {
+  let attacked = 0n;
+  const occupancy = board.getOccupancy();
+  const pIdx = pawnAttackIndex(attackingColor);
 
-  // Check both diagonal positions
-  for (const fileDelta of [-1, 1]) {
-    const pawnFile = file + fileDelta;
-    
-    if (pawnFile < 0 || pawnFile > 7 || pawnRank < 0 || pawnRank > 7) {
-      continue;
-    }
-    
-    const pawnSquare = coordsToSquare(pawnRank, pawnFile);
-    const piece = board.getPiece(pawnSquare);
-    
-    if (piece && piece.type === PieceType.Pawn && piece.color === attackingColor) {
-      return true;
-    }
+  // Pawns
+  let pawns = board.getPieceBitboard(PieceType.Pawn, attackingColor);
+  while (pawns) {
+    const sq = Number(BigInt(pawns & -pawns).toString(2).length - 1);
+    attacked |= (PAWN_ATTACKS[pIdx]?.[sq]) ?? 0n;
+    pawns &= pawns - 1n;
   }
-  
-  return false;
+
+  // Knights
+  let knights = board.getPieceBitboard(PieceType.Knight, attackingColor);
+  while (knights) {
+    const sq = Number(BigInt(knights & -knights).toString(2).length - 1);
+    attacked |= (KNIGHT_ATTACKS[sq]) ?? 0n;
+    knights &= knights - 1n;
+  }
+
+  // King
+  const kingBB = board.getPieceBitboard(PieceType.King, attackingColor);
+  if (kingBB) {
+    const kingSq = Number(BigInt(kingBB & -kingBB).toString(2).length - 1);
+    attacked |= (KING_ATTACKS[kingSq]) ?? 0n;
+  }
+
+  // Bishops + Queens (diagonal)
+  let bishops = board.getPieceBitboard(PieceType.Bishop, attackingColor) |
+                board.getPieceBitboard(PieceType.Queen, attackingColor);
+  while (bishops) {
+    const sq = Number(BigInt(bishops & -bishops).toString(2).length - 1);
+    attacked |= getBishopAttacks(sq, occupancy);
+    bishops &= bishops - 1n;
+  }
+
+  // Rooks + Queens (orthogonal)
+  let rooks = board.getPieceBitboard(PieceType.Rook, attackingColor) |
+              board.getPieceBitboard(PieceType.Queen, attackingColor);
+  while (rooks) {
+    const sq = Number(BigInt(rooks & -rooks).toString(2).length - 1);
+    attacked |= getRookAttacks(sq, occupancy);
+    rooks &= rooks - 1n;
+  }
+
+  return attacked;
 }
 
 /**
- * Check if square is attacked by a knight
+ * Get a bitboard of all attackers of a specific square.
+ *
+ * @param board Current board state
+ * @param square Target square
+ * @param attackingColor Color of attacking pieces
+ * @returns Bitboard of all pieces of the given color attacking the square
  */
-function isAttackedByKnight(
+export function getAttackersOf(
   board: Board,
   square: Square,
   attackingColor: Color
-): boolean {
-  const { rank, file } = squareToCoords(square);
-  
-  // Knight move offsets
-  const knightOffsets: readonly [number, number][] = [
-    [-2, -1], [-2, 1],
-    [-1, -2], [-1, 2],
-    [1, -2],  [1, 2],
-    [2, -1],  [2, 1],
-  ];
-  
-  for (const [rankDelta, fileDelta] of knightOffsets) {
-    const knightRank = rank + rankDelta;
-    const knightFile = file + fileDelta;
-    
-    if (knightRank < 0 || knightRank > 7 || knightFile < 0 || knightFile > 7) {
-      continue;
-    }
-    
-    const knightSquare = coordsToSquare(knightRank, knightFile);
-    const piece = board.getPiece(knightSquare);
-    
-    if (piece && piece.type === PieceType.Knight && piece.color === attackingColor) {
-      return true;
-    }
-  }
-  
-  return false;
-}
+): bigint {
+  let attackers = 0n;
+  const occupancy = board.getOccupancy();
+  const sq = square;
 
-/**
- * Check if square is attacked by a sliding piece (bishop, rook, or queen)
- */
-function isAttackedBySlidingPiece(
-  board: Board,
-  square: Square,
-  attackingColor: Color
-): boolean {
-  // Check diagonal directions (bishops and queens)
-  for (const direction of DIAGONAL_DIRECTIONS) {
-    const attacker = findSlidingAttacker(board, square, direction, attackingColor);
-    if (attacker && (attacker.type === PieceType.Bishop || attacker.type === PieceType.Queen)) {
-      return true;
-    }
-  }
-  
-  // Check orthogonal directions (rooks and queens)
-  for (const direction of ORTHOGONAL_DIRECTIONS) {
-    const attacker = findSlidingAttacker(board, square, direction, attackingColor);
-    if (attacker && (attacker.type === PieceType.Rook || attacker.type === PieceType.Queen)) {
-      return true;
-    }
-  }
-  
-  return false;
-}
+  // Pawns (reverse attack lookup)
+  const reversePawnIdx = pawnAttackIndex(attackingColor === Color.White ? Color.Black : Color.White);
+  attackers |= ((PAWN_ATTACKS[reversePawnIdx]?.[sq]) ?? 0n) & board.getPieceBitboard(PieceType.Pawn, attackingColor);
 
-/**
- * Find a sliding attacker in a specific direction
- * Returns the first piece encountered in that direction
- */
-function findSlidingAttacker(
-  board: Board,
-  square: Square,
-  direction: Direction,
-  attackingColor: Color
-): Piece | null {
-  const { rank: startRank, file: startFile } = squareToCoords(square);
-  const [rankDelta, fileDelta] = direction;
-  
-  let currentRank = startRank + rankDelta;
-  let currentFile = startFile + fileDelta;
-  
-  // Slide in direction until we hit a piece or board edge
-  while (currentRank >= 0 && currentRank < 8 && currentFile >= 0 && currentFile < 8) {
-    const currentSquare = coordsToSquare(currentRank, currentFile);
-    const piece = board.getPiece(currentSquare);
-    
-    if (piece !== null) {
-      // Found a piece - return it if it's the attacking color
-      return piece.color === attackingColor ? piece : null;
-    }
-    
-    currentRank += rankDelta;
-    currentFile += fileDelta;
-  }
-  
-  return null;
-}
+  // Knights
+  attackers |= ((KNIGHT_ATTACKS[sq]) ?? 0n) & board.getPieceBitboard(PieceType.Knight, attackingColor);
 
-/**
- * Check if square is attacked by a king
- */
-function isAttackedByKing(
-  board: Board,
-  square: Square,
-  attackingColor: Color
-): boolean {
-  const { rank, file } = squareToCoords(square);
-  
-  // King can attack one square in any direction
-  const kingOffsets: readonly [number, number][] = [
-    [-1, -1], [-1, 0], [-1, 1],
-    [0, -1],           [0, 1],
-    [1, -1],  [1, 0],  [1, 1],
-  ];
-  
-  for (const [rankDelta, fileDelta] of kingOffsets) {
-    const kingRank = rank + rankDelta;
-    const kingFile = file + fileDelta;
-    
-    if (kingRank < 0 || kingRank > 7 || kingFile < 0 || kingFile > 7) {
-      continue;
-    }
-    
-    const kingSquare = coordsToSquare(kingRank, kingFile);
-    const piece = board.getPiece(kingSquare);
-    
-    if (piece && piece.type === PieceType.King && piece.color === attackingColor) {
-      return true;
-    }
-  }
-  
-  return false;
+  // King
+  attackers |= ((KING_ATTACKS[sq]) ?? 0n) & board.getPieceBitboard(PieceType.King, attackingColor);
+
+  // Bishops + Queens (diagonal)
+  const bAttacks = getBishopAttacks(sq, occupancy);
+  attackers |= bAttacks & (board.getPieceBitboard(PieceType.Bishop, attackingColor) |
+                            board.getPieceBitboard(PieceType.Queen, attackingColor));
+
+  // Rooks + Queens (orthogonal)
+  const rAttacks = getRookAttacks(sq, occupancy);
+  attackers |= rAttacks & (board.getPieceBitboard(PieceType.Rook, attackingColor) |
+                            board.getPieceBitboard(PieceType.Queen, attackingColor));
+
+  return attackers;
 }

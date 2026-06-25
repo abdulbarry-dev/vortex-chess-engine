@@ -1,24 +1,81 @@
 /**
  * @file Board.ts
- * @description Chess board representation using 8x8 array
+ * @description Chess board representation using 8x8 array with bitboard acceleration.
+ * Hybrid design: maintains both a piece array (for compatibility) and bitboards (for speed).
  */
 
+import { EMPTY_BB, clearBit, hasBit, setBit, bitScanForward, popCount } from '../bitboard/Bitboard';
 import { Color, Piece, PieceType } from './Piece';
 import { Square, isValidSquare } from './Square';
 
 /**
- * Chess board representation using 64-element array
+ * Compute a unique index into the pieceBB array for a given color and piece type.
+ * White pieces: indices 0-5, Black pieces: indices 6-11.
+ */
+function bbIndex(color: Color, type: PieceType): number {
+  // PieceType is 1-6, Color.White=1, Color.Black=-1
+  return (color === Color.White ? 0 : 6) + (type - 1);
+}
+
+/**
+ * Chess board representation using 64-element array with bitboard acceleration.
  * Square 0 = a1, Square 63 = h8
  */
 export class Board {
   private squares: (Piece | null)[];
+
+  // ── Bitboard state ──────────────────────────────────────────────────────
+  /**
+   * 12 piece bitboards indexed by bbIndex(color, pieceType).
+   * [0]=WP, [1]=WN, [2]=WB, [3]=WR, [4]=WQ, [5]=WK,
+   * [6]=BP, [7]=BN, [8]=BB, [9]=BR, [10]=BQ, [11]=BK
+   */
+  private pieceBB: bigint[];
+
+  /** White occupancy (union of all white piece bitboards) */
+  private whiteBB: bigint;
+
+  /** Black occupancy (union of all black piece bitboards) */
+  private blackBB: bigint;
+
+  /** Total occupancy (white | black) */
+  private allBB: bigint;
 
   /**
    * Create a new board (empty by default)
    */
   constructor() {
     this.squares = new Array(64).fill(null);
+    this.pieceBB = new Array(12).fill(EMPTY_BB);
+    this.whiteBB = EMPTY_BB;
+    this.blackBB = EMPTY_BB;
+    this.allBB = EMPTY_BB;
   }
+
+  // ── Bitboard accessors ────────────────────────────────────────────────────
+
+  /**
+   * Get the bitboard for a specific piece type and color.
+   */
+  getPieceBitboard(type: PieceType, color: Color): bigint {
+    return this.pieceBB[bbIndex(color, type)] ?? EMPTY_BB;
+  }
+
+  /**
+   * Get occupancy bitboard for a given color.
+   */
+  getColorOccupancy(color: Color): bigint {
+    return color === Color.White ? this.whiteBB : this.blackBB;
+  }
+
+  /**
+   * Get total occupancy bitboard.
+   */
+  getOccupancy(): bigint {
+    return this.allBB;
+  }
+
+  // ── Core piece access ─────────────────────────────────────────────────────
 
   /**
    * Get the piece at a given square
@@ -33,7 +90,7 @@ export class Board {
   }
 
   /**
-   * Set a piece at a given square
+   * Set a piece at a given square (updates both array and bitboards)
    * @param square Square index (0-63)
    * @param piece Piece to place, or null to clear the square
    */
@@ -41,7 +98,32 @@ export class Board {
     if (!isValidSquare(square)) {
       throw new Error(`Invalid square: ${square}`);
     }
+
+    // Remove the old piece from bitboards
+    const oldPiece = this.squares[square];
+    if (oldPiece) {
+      const idx = bbIndex(oldPiece.color, oldPiece.type);
+      this.pieceBB[idx] = clearBit(this.pieceBB[idx] ?? EMPTY_BB, square);
+      if (oldPiece.color === Color.White) {
+        this.whiteBB = clearBit(this.whiteBB, square);
+      } else {
+        this.blackBB = clearBit(this.blackBB, square);
+      }
+      this.allBB = clearBit(this.allBB, square);
+    }
+
+    // Place the new piece
     this.squares[square] = piece;
+    if (piece) {
+      const idx = bbIndex(piece.color, piece.type);
+      this.pieceBB[idx] = setBit(this.pieceBB[idx] ?? EMPTY_BB, square);
+      if (piece.color === Color.White) {
+        this.whiteBB = setBit(this.whiteBB, square);
+      } else {
+        this.blackBB = setBit(this.blackBB, square);
+      }
+      this.allBB = setBit(this.allBB, square);
+    }
   }
 
   /**
@@ -50,7 +132,7 @@ export class Board {
    * @returns True if the square is empty
    */
   isEmpty(square: Square): boolean {
-    return this.getPiece(square) === null;
+    return !hasBit(this.allBB, square);
   }
 
   /**
@@ -60,8 +142,7 @@ export class Board {
    * @returns True if square contains a piece of the specified color
    */
   isOccupiedByColor(square: Square, color: Color): boolean {
-    const piece = this.getPiece(square);
-    return piece !== null && piece.color === color;
+    return hasBit(this.getColorOccupancy(color), square);
   }
 
   /**
@@ -69,6 +150,10 @@ export class Board {
    */
   clear(): void {
     this.squares.fill(null);
+    this.pieceBB.fill(EMPTY_BB);
+    this.whiteBB = EMPTY_BB;
+    this.blackBB = EMPTY_BB;
+    this.allBB = EMPTY_BB;
   }
 
   /**
@@ -114,12 +199,20 @@ export class Board {
    */
   clone(): Board {
     const newBoard = new Board();
+    // Copy piece array
     for (let square = 0; square < 64; square++) {
       const piece = this.squares[square];
       if (piece) {
-        newBoard.setPiece(square, { ...piece });
+        newBoard.squares[square] = { ...piece };
       }
     }
+    // Copy bitboards directly (bigint is immutable)
+    for (let i = 0; i < 12; i++) {
+      newBoard.pieceBB[i] = this.pieceBB[i] ?? EMPTY_BB;
+    }
+    newBoard.whiteBB = this.whiteBB;
+    newBoard.blackBB = this.blackBB;
+    newBoard.allBB = this.allBB;
     return newBoard;
   }
 
@@ -130,14 +223,7 @@ export class Board {
    * @returns Number of matching pieces on the board
    */
   countPieces(type: PieceType, color: Color): number {
-    let count = 0;
-    for (let square = 0; square < 64; square++) {
-      const piece = this.squares[square];
-      if (piece && piece.type === type && piece.color === color) {
-        count++;
-      }
-    }
-    return count;
+    return popCount(this.getPieceBitboard(type, color));
   }
 
   /**
@@ -148,11 +234,11 @@ export class Board {
    */
   findPieces(type: PieceType, color: Color): Square[] {
     const squares: Square[] = [];
-    for (let square = 0; square < 64; square++) {
-      const piece = this.squares[square];
-      if (piece && piece.type === type && piece.color === color) {
-        squares.push(square);
-      }
+    let bb = this.getPieceBitboard(type, color);
+    while (bb !== EMPTY_BB) {
+      const sq = bitScanForward(bb);
+      squares.push(sq);
+      bb &= bb - 1n; // Clear LSB
     }
     return squares;
   }
@@ -163,8 +249,9 @@ export class Board {
    * @returns Square index of the king, or null if not found
    */
   findKing(color: Color): Square | null {
-    const kings = this.findPieces(PieceType.King, color);
-    return kings.length > 0 ? kings[0] ?? null : null;
+    const kingBB = this.getPieceBitboard(PieceType.King, color);
+    if (kingBB === EMPTY_BB) return null;
+    return bitScanForward(kingBB);
   }
 
   /**
