@@ -7,10 +7,16 @@ import { CHECKMATE_SCORE, MAX_SEARCH_DEPTH } from '../constants/SearchConstants'
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
 import { Evaluator } from '../evaluation/Evaluator';
-import { isInCheck } from '../move-generation/LegalityChecker';
+import { isInCheck, isMoveLegal } from '../move-generation/LegalityChecker';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { Move } from '../types/Move.types';
-import { SearchStats } from '../types/Search.types';
+import { SearchStats, TTEntryType } from '../types/Search.types';
+import { MoveExecutor } from '../core/MoveExecutor';
+
+import { MovePicker } from './MovePicker';
+import { MoveOrderer } from './MoveOrdering';
+import { TranspositionTable } from './TranspositionTable';
+import { ZobristHasher } from './ZobristHashing';
 
 /**
  * Alpha-beta pruning search with negamax
@@ -21,6 +27,9 @@ import { SearchStats } from '../types/Search.types';
 export class AlphaBetaSearch {
   private readonly evaluator: Evaluator;
   private readonly moveGenerator: MoveGenerator;
+  private readonly moveOrderer: MoveOrderer;
+  private transpositionTable: TranspositionTable | null;
+  private zobristHasher: ZobristHasher | null;
   private stats: SearchStats;
   private startTime: number = 0;
   private timeLimitMs: number = Infinity;
@@ -28,11 +37,22 @@ export class AlphaBetaSearch {
 
   constructor(
     evaluator: Evaluator,
-    moveGenerator: MoveGenerator
+    moveGenerator: MoveGenerator,
+    moveOrderer: MoveOrderer = new MoveOrderer(),
+    transpositionTable: TranspositionTable | null = null,
+    zobristHasher: ZobristHasher | null = null
   ) {
     this.evaluator = evaluator;
     this.moveGenerator = moveGenerator;
+    this.moveOrderer = moveOrderer;
+    this.transpositionTable = transpositionTable;
+    this.zobristHasher = zobristHasher;
     this.stats = this.createEmptyStats();
+  }
+
+  setTranspositionTable(tt: TranspositionTable, hasher: ZobristHasher) {
+    this.transpositionTable = tt;
+    this.zobristHasher = hasher;
   }
 
   /**
@@ -55,35 +75,36 @@ export class AlphaBetaSearch {
     this.resetStats();
     this.startTime = Date.now();
 
-    const moves = this.moveGenerator.generateLegalMoves(board, state);
-
-    if (moves.length === 0) {
-      // No legal moves - checkmate or stalemate
-      const inCheck = isInCheck(board, state.currentPlayer);
-      return {
-        move: null,
-        score: inCheck ? -CHECKMATE_SCORE : 0,
-      };
-    }
+    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, null, 0);
 
     let bestMove: Move | null = null;
     let bestScore = -Infinity;
+    let legalMovesFound = 0;
 
-    // Search each move
-    for (const move of moves) {
+    let move = movePicker.nextMove();
+    while (move !== null) {
+      // Ensure pseudo-legal move is actually legal
+      if (!isMoveLegal(board, state, move)) {
+        move = movePicker.nextMove();
+        continue;
+      }
+      legalMovesFound++;
+      
+      // Fallback to the first legal move in case we stop immediately
+      if (bestMove === null) {
+        bestMove = move;
+      }
+      
       if (this.shouldStop()) break;
 
-      // Make move (clone board and state)
-      const boardCopy = board.clone();
-      const stateCopy = state.clone();
-      
-      // Apply move manually
-      boardCopy.setPiece(move.to, move.piece);
-      boardCopy.setPiece(move.from, null);
-      stateCopy.switchTurn();
+      // Make move in place
+      const history = MoveExecutor.makeMove(board, state, move);
 
       // Search
-      const score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, 1);
+      const score = -this.search(board, state, depth - 1, -beta, -alpha, 1);
+      
+      // Unmake move
+      MoveExecutor.unmakeMove(board, state, history);
 
       // Update best
       if (score > bestScore) {
@@ -101,6 +122,17 @@ export class AlphaBetaSearch {
         this.stats.betaCutoffs++;
         break;
       }
+      
+      move = movePicker.nextMove();
+    }
+
+    if (legalMovesFound === 0) {
+      // No legal moves - checkmate or stalemate
+      const inCheck = isInCheck(board, state.currentPlayer);
+      return {
+        move: null,
+        score: inCheck ? -CHECKMATE_SCORE : 0,
+      };
     }
 
     return { move: bestMove, score: bestScore };
@@ -139,8 +171,7 @@ export class AlphaBetaSearch {
 
     // Check depth limit
     if (depth <= 0) {
-      // TODO: Call quiescence search here in future
-      return this.evaluator.evaluate(board, state);
+      return this.quiescenceSearch(board, state, alpha, beta, ply);
     }
 
     // Check maximum depth
@@ -148,16 +179,42 @@ export class AlphaBetaSearch {
       return this.evaluator.evaluate(board, state);
     }
 
+    // Transposition Table Probe
+    const originalAlpha = alpha;
+    let hash = 0n;
+    let hashMove: Move | null = null;
+    
+    if (this.transpositionTable && this.zobristHasher) {
+      hash = this.zobristHasher.computeHash(board, state);
+      const ttEntry = this.transpositionTable.probe(hash);
+      
+      if (ttEntry) {
+        const score = this.transpositionTable.getScore(ttEntry, depth, alpha, beta);
+        if (score !== null) {
+          return score;
+        }
+        
+        if (ttEntry.bestMove) {
+          hashMove = ttEntry.bestMove;
+        }
+      }
+    }
+
     // Null Move Pruning (NMP)
     // If we can pass (do nothing) and still cause beta cutoff, position is too good
     const canDoNullMove = depth >= 3 && !isInCheck(board, state.currentPlayer) && ply > 0;
     if (canDoNullMove) {
-      // Make null move (just switch turns)
-      const stateCopy = state.clone();
-      stateCopy.switchTurn();
+      // Make null move (just switch turns and clear ep)
+      const epSquare = state.enPassantSquare;
+      state.enPassantSquare = null;
+      state.switchTurn();
       
       // Search with reduced depth (R=2)
-      const nullScore = -this.search(board, stateCopy, depth - 3, -beta, -beta + 1, ply + 1);
+      const nullScore = -this.search(board, state, depth - 3, -beta, -beta + 1, ply + 1);
+      
+      // Unmake null move
+      state.switchTurn();
+      state.enPassantSquare = epSquare;
       
       // If null move causes cutoff, prune this branch
       if (nullScore >= beta) {
@@ -165,36 +222,46 @@ export class AlphaBetaSearch {
       }
     }
 
-    // Generate legal moves
-    const moves = this.moveGenerator.generateLegalMoves(board, state);
-
-    // No legal moves - checkmate or stalemate
-    if (moves.length === 0) {
-      const inCheck = isInCheck(board, state.currentPlayer);
-      if (inCheck) {
-        // Checkmate - prefer shorter mates
-        return -CHECKMATE_SCORE + ply;
-      } else {
-        // Stalemate
-        return 0;
+    // Futility Pruning
+    // If static evaluation is significantly below alpha, quiet moves are unlikely to raise alpha
+    let futilityPruningActive = false;
+    let futilityMargin = 0;
+    const inCheck = isInCheck(board, state.currentPlayer);
+    
+    if (depth <= 3 && !inCheck && Math.abs(alpha) < CHECKMATE_SCORE - 100) {
+      const staticEval = this.evaluator.evaluate(board, state);
+      futilityMargin = depth * 200; // 200, 400, 600 margin depending on depth
+      
+      if (staticEval + futilityMargin <= alpha) {
+        futilityPruningActive = true;
       }
     }
 
-    let bestScore = -Infinity;
-    let moveCount = 0;
+    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply);
 
-    // Search each move
-    for (const move of moves) {
+    let bestScore = -Infinity;
+    let bestMove: Move | null = null;
+    let moveCount = 0;
+    let legalMovesFound = 0;
+
+    let move = movePicker.nextMove();
+    while (move !== null) {
+      // Futility pruning: skip quiet moves if condition is met
+      if (futilityPruningActive && legalMovesFound > 0 && !move.captured && !move.promotion) {
+        move = movePicker.nextMove();
+        continue;
+      }
+
+      // Ensure pseudo-legal move is actually legal
+      if (!isMoveLegal(board, state, move)) {
+        move = movePicker.nextMove();
+        continue;
+      }
+      legalMovesFound++;
       moveCount++;
       
-      // Make move (clone board and state)
-      const boardCopy = board.clone();
-      const stateCopy = state.clone();
-      
-      // Apply move manually
-      boardCopy.setPiece(move.to, move.piece);
-      boardCopy.setPiece(move.from, null);
-      stateCopy.switchTurn();
+      // Make move in place
+      const history = MoveExecutor.makeMove(board, state, move);
 
       let score: number;
 
@@ -205,25 +272,29 @@ export class AlphaBetaSearch {
         moveCount > 4 &&
         !move.captured &&
         !move.promotion &&
-        !isInCheck(boardCopy, stateCopy.currentPlayer);
+        !isInCheck(board, state.currentPlayer);
 
       if (canReduceDepth) {
         // Search with reduced depth first
         const reduction = moveCount > 8 ? 2 : 1;
-        score = -this.search(boardCopy, stateCopy, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+        score = -this.search(board, state, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
         
         // If reduced search failed high, re-search at full depth
         if (score > alpha) {
-          score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, ply + 1);
+          score = -this.search(board, state, depth - 1, -beta, -alpha, ply + 1);
         }
       } else {
         // Normal search at full depth
-        score = -this.search(boardCopy, stateCopy, depth - 1, -beta, -alpha, ply + 1);
+        score = -this.search(board, state, depth - 1, -beta, -alpha, ply + 1);
       }
+
+      // Unmake move in place
+      MoveExecutor.unmakeMove(board, state, history);
 
       // Update best score
       if (score > bestScore) {
         bestScore = score;
+        bestMove = move;
       }
 
       // Update alpha
@@ -234,8 +305,145 @@ export class AlphaBetaSearch {
       // Beta cutoff (pruning)
       if (alpha >= beta) {
         this.stats.betaCutoffs++;
+        // Add to killers and history (if quiet move)
+        if (!move.captured && !move.promotion) {
+          this.moveOrderer.addKillerMove(move, ply);
+          this.moveOrderer.addHistoryMove(move, depth);
+        }
         break;
       }
+      
+      move = movePicker.nextMove();
+    }
+
+    if (legalMovesFound === 0) {
+      // No legal moves - checkmate or stalemate
+      const inCheck = isInCheck(board, state.currentPlayer);
+      if (inCheck) {
+        // Checkmate - prefer shorter mates
+        return -CHECKMATE_SCORE + ply;
+      } else {
+        // Stalemate
+        return 0;
+      }
+    }
+
+    // Store to Transposition Table
+    if (this.transpositionTable && hash !== 0n) {
+      let ttType = TTEntryType.Exact;
+      if (bestScore <= originalAlpha) {
+        ttType = TTEntryType.Alpha;
+      } else if (bestScore >= beta) {
+        ttType = TTEntryType.Beta;
+      }
+      this.transpositionTable.store(hash, depth, bestScore, ttType, bestMove);
+    }
+
+    return bestScore;
+  }
+
+  /**
+   * Quiescence search to resolve captures and avoid horizon effect
+   */
+  private quiescenceSearch(
+    board: Board,
+    state: GameState,
+    alpha: number,
+    beta: number,
+    ply: number
+  ): number {
+    this.stats.nodes++;
+    
+    // Check limits
+    if (this.shouldStop() || ply >= MAX_SEARCH_DEPTH) {
+      return this.evaluator.evaluate(board, state);
+    }
+    
+    // Stand pat score
+    const standPat = this.evaluator.evaluate(board, state);
+    if (standPat >= beta) {
+      return beta; // Fail-hard beta cutoff
+    }
+    if (standPat > alpha) {
+      alpha = standPat;
+    }
+    
+    // Delta Pruning
+    // If standPat + value of Queen + margin < alpha, we can't possibly raise alpha
+    const BIG_DELTA = 900 + 200; // Queen value + safety margin
+    if (standPat + BIG_DELTA < alpha) {
+      return alpha;
+    }
+    
+    // Transposition Table Probe
+    let hash = 0n;
+    let hashMove: Move | null = null;
+    
+    if (this.transpositionTable && this.zobristHasher) {
+      hash = this.zobristHasher.computeHash(board, state);
+      const ttEntry = this.transpositionTable.probe(hash);
+      
+      if (ttEntry) {
+        // We only use exact scores in QS, or bounds if they cause a cutoff
+        // Note: depth is essentially 0 for QS
+        const ttScore = this.transpositionTable.getScore(ttEntry, 0, alpha, beta);
+        if (ttScore !== null) {
+          return ttScore;
+        }
+        
+        if (ttEntry.bestMove) {
+          hashMove = ttEntry.bestMove;
+        }
+      }
+    }
+
+    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply, true);
+    
+    let move = movePicker.nextMove();
+    let bestScore = alpha;
+    let bestMove: Move | null = null;
+    const originalAlpha = alpha;
+
+    while (move !== null) {
+      // Ensure pseudo-legal move is actually legal
+      if (!isMoveLegal(board, state, move)) {
+        move = movePicker.nextMove();
+        continue;
+      }
+      
+      // Make move in place
+      const history = MoveExecutor.makeMove(board, state, move);
+      
+      const score = -this.quiescenceSearch(board, state, -beta, -alpha, ply + 1);
+      
+      // Unmake move in place
+      MoveExecutor.unmakeMove(board, state, history);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = move;
+        if (score > alpha) {
+          alpha = score;
+        }
+      }
+      
+      if (alpha >= beta) {
+        this.stats.betaCutoffs++;
+        break;
+      }
+      
+      move = movePicker.nextMove();
+    }
+    
+    // Store QS result in TT (depth 0)
+    if (this.transpositionTable && hash !== 0n) {
+      let ttType = TTEntryType.Exact;
+      if (bestScore <= originalAlpha) {
+        ttType = TTEntryType.Alpha;
+      } else if (bestScore >= beta) {
+        ttType = TTEntryType.Beta;
+      }
+      this.transpositionTable.store(hash, 0, bestScore, ttType, bestMove);
     }
 
     return bestScore;

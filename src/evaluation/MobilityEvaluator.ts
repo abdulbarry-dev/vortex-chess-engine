@@ -60,11 +60,14 @@ export class MobilityEvaluator {
    * @returns Number of legal moves
    */
   private countMoves(board: Board, state: GameState, color: Color): number {
-    // Create temporary state with correct turn
-    const tempState = state.clone();
-    tempState.currentPlayer = color;
+    // Temporarily switch turn
+    const originalPlayer = state.currentPlayer;
+    state.currentPlayer = color;
 
-    const moves = this.moveGenerator.generateLegalMoves(board, tempState);
+    const moves = this.moveGenerator.generateLegalMoves(board, state);
+    
+    // Restore turn
+    state.currentPlayer = originalPlayer;
     return moves.length;
   }
 }

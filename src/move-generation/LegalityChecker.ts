@@ -76,12 +76,12 @@ export function isMoveLegal(
   }
   
   // Make the move
-  board.setPiece(move.to, originalFromPiece);
-  board.setPiece(move.from, null);
+  board.setPieceFast(move.to, originalFromPiece);
+  board.setPieceFast(move.from, null);
   
   // Handle en passant capture
   if (enPassantCaptureSquare !== null) {
-    board.setPiece(enPassantCaptureSquare, null);
+    board.setPieceFast(enPassantCaptureSquare, null);
   }
   
   // Find king position (might have moved if this is a king move)
@@ -97,12 +97,12 @@ export function isMoveLegal(
   );
   
   // Unmake the move
-  board.setPiece(move.from, originalFromPiece);
-  board.setPiece(move.to, originalToPiece);
+  board.setPieceFast(move.from, originalFromPiece);
+  board.setPieceFast(move.to, originalToPiece);
   
   // Restore captured pawn for en passant
-  if (enPassantCaptureSquare !== null && capturedEnPassantPiece) {
-    board.setPiece(enPassantCaptureSquare, capturedEnPassantPiece);
+  if (enPassantCaptureSquare !== null && capturedEnPassantPiece !== null) {
+    board.setPieceFast(enPassantCaptureSquare, capturedEnPassantPiece);
   }
   
   return !isInCheck;

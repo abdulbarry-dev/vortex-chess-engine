@@ -5,13 +5,19 @@
 
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
-import { PieceType } from '../core/Piece';
+import { Color, PieceType } from '../core/Piece';
 import { Move } from '../types/Move.types';
 import { generateCastlingMoves, generateKingMoves } from './KingMoves';
 import { generateKnightMoves } from './KnightMoves';
 import { filterLegalMoves } from './LegalityChecker';
 import { generatePawnMoves } from './PawnMoves';
 import { generateBishopMoves, generateQueenMoves, generateRookMoves } from './SlidingMoves';
+
+export enum MoveGenType {
+  All,
+  Captures,
+  Quiets
+}
 
 /**
  * Main move generator class
@@ -23,10 +29,11 @@ export class MoveGenerator {
    * 
    * @param board Current board state
    * @param state Game state
+   * @param type Type of moves to generate
    * @returns Array of legal moves
    */
-  generateLegalMoves(board: Board, state: GameState): Move[] {
-    const pseudoLegalMoves = this.generatePseudoLegalMoves(board, state);
+  generateLegalMoves(board: Board, state: GameState, type: MoveGenType = MoveGenType.All): Move[] {
+    const pseudoLegalMoves = this.generatePseudoLegalMoves(board, state, type);
     return filterLegalMoves(board, state, pseudoLegalMoves);
   }
 
@@ -36,42 +43,72 @@ export class MoveGenerator {
    * 
    * @param board Current board state
    * @param state Game state
+   * @param type Type of moves to generate
    * @returns Array of pseudo-legal moves
    */
-  generatePseudoLegalMoves(board: Board, state: GameState): Move[] {
+  generatePseudoLegalMoves(board: Board, state: GameState, type: MoveGenType = MoveGenType.All): Move[] {
     const moves: Move[] = [];
     const currentPlayer = state.currentPlayer;
+    const enemyColor = currentPlayer === Color.White ? Color.Black : Color.White;
 
-    // Get all pieces for current player
-    const pieces = board.getPiecesByColor(currentPlayer);
+    let targetMask = 0xFFFFFFFFFFFFFFFFn;
+    if (type === MoveGenType.Captures) {
+      targetMask = board.getColorOccupancy(enemyColor);
+    } else if (type === MoveGenType.Quiets) {
+      targetMask = ~(board.getColorOccupancy(Color.White) | board.getColorOccupancy(Color.Black));
+    }
 
-    for (const [square, piece] of pieces) {
-      switch (piece.type) {
-        case PieceType.Pawn:
-          generatePawnMoves(board, state, square, piece, moves);
-          break;
-        
-        case PieceType.Knight:
-          generateKnightMoves(board, square, piece, moves);
-          break;
-        
-        case PieceType.Bishop:
-          generateBishopMoves(board, square, piece, moves);
-          break;
-        
-        case PieceType.Rook:
-          generateRookMoves(board, square, piece, moves);
-          break;
-        
-        case PieceType.Queen:
-          generateQueenMoves(board, square, piece, moves);
-          break;
-        
-        case PieceType.King:
-          generateKingMoves(board, square, piece, moves);
-          generateCastlingMoves(board, state, square, piece, moves);
-          break;
+    const capturesOnly = type === MoveGenType.Captures;
+    const quietsOnly = type === MoveGenType.Quiets;
+
+    // Use bitboard to find all pieces without allocating arrays
+    let occupancy = board.getColorOccupancy(currentPlayer);
+
+    while (occupancy !== 0n) {
+      // Find the next piece's square
+      let isolated = occupancy & -occupancy;
+      // Faster bitscan for local usage:
+      let sq = 0;
+      if ((isolated & 0xFFFFFFFF00000000n) !== 0n) sq += 32;
+      if ((isolated & 0xFFFF0000FFFF0000n) !== 0n) sq += 16;
+      if ((isolated & 0xFF00FF00FF00FF00n) !== 0n) sq += 8;
+      if ((isolated & 0xF0F0F0F0F0F0F0F0n) !== 0n) sq += 4;
+      if ((isolated & 0xCCCCCCCCCCCCCCCCn) !== 0n) sq += 2;
+      if ((isolated & 0xAAAAAAAAAAAAAAAAn) !== 0n) sq += 1;
+      
+      const piece = board.getPiece(sq);
+      if (piece) {
+        switch (piece.type) {
+          case PieceType.Pawn:
+            generatePawnMoves(board, state, sq, piece, moves, capturesOnly, quietsOnly);
+            break;
+          
+          case PieceType.Knight:
+            generateKnightMoves(board, sq, piece, moves, targetMask);
+            break;
+          
+          case PieceType.Bishop:
+            generateBishopMoves(board, sq, piece, moves, targetMask);
+            break;
+          
+          case PieceType.Rook:
+            generateRookMoves(board, sq, piece, moves, targetMask);
+            break;
+          
+          case PieceType.Queen:
+            generateQueenMoves(board, sq, piece, moves, targetMask);
+            break;
+          
+          case PieceType.King:
+            generateKingMoves(board, sq, piece, moves, targetMask);
+            if (!capturesOnly) {
+              generateCastlingMoves(board, state, sq, piece, moves);
+            }
+            break;
+        }
       }
+
+      occupancy &= occupancy - 1n;
     }
 
     return moves;
@@ -85,8 +122,7 @@ export class MoveGenerator {
    * @returns Array of legal capture moves
    */
   generateCaptures(board: Board, state: GameState): Move[] {
-    const allMoves = this.generateLegalMoves(board, state);
-    return allMoves.filter(move => move.captured !== undefined);
+    return this.generateLegalMoves(board, state, MoveGenType.Captures);
   }
 
   /**

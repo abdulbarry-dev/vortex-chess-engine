@@ -5,23 +5,13 @@
 
 import { Board } from '../core/Board';
 import { Piece } from '../core/Piece';
-import { coordsToSquare, Square, squareToCoords } from '../core/Square';
+import { Square } from '../core/Square';
 import { Move, MoveFlags } from '../types/Move.types';
+import { KNIGHT_ATTACKS } from '../bitboard/AttackTables';
+import { bitScanForward } from '../bitboard/Bitboard';
 
 /**
- * Knight move offsets (L-shape: 2 squares in one direction, 1 in perpendicular)
- * [rankDelta, fileDelta]
- */
-const KNIGHT_OFFSETS = [
-  [-2, -1], [-2, 1],  // Two up
-  [-1, -2], [-1, 2],  // One up
-  [1, -2],  [1, 2],   // One down
-  [2, -1],  [2, 1],   // Two down
-] as const;
-
-/**
- * Generate all knight moves from a square
- * Knights jump over pieces and are not blocked
+ * Generate all knight moves from a square using bitboards
  * 
  * @param board Current board state
  * @param from Starting square
@@ -32,40 +22,24 @@ export function generateKnightMoves(
   board: Board,
   from: Square,
   piece: Piece,
-  moves: Move[]
+  moves: Move[],
+  targetMask: bigint = 0xFFFFFFFFFFFFFFFFn // FULL_BB equivalent
 ): void {
-  const { rank: startRank, file: startFile } = squareToCoords(from);
+  // Get all pseudo-legal knight squares (attacks & ~ownPieces)
+  let attacks = KNIGHT_ATTACKS[from]! & ~board.getColorOccupancy(piece.color) & targetMask;
 
-  for (const [rankDelta, fileDelta] of KNIGHT_OFFSETS) {
-    const targetRank = startRank + rankDelta;
-    const targetFile = startFile + fileDelta;
+  while (attacks !== 0n) {
+    const to = bitScanForward(attacks);
+    const targetPiece = board.getPiece(to);
 
-    // Check if target is on board
-    if (targetRank < 0 || targetRank > 7 || targetFile < 0 || targetFile > 7) {
-      continue;
-    }
+    moves.push({
+      from,
+      to,
+      piece,
+      captured: targetPiece !== null ? targetPiece : undefined,
+      flags: targetPiece !== null ? MoveFlags.Capture : MoveFlags.None,
+    });
 
-    const targetSquare = coordsToSquare(targetRank, targetFile);
-    const targetPiece = board.getPiece(targetSquare);
-
-    if (targetPiece === null) {
-      // Empty square - can move here
-      moves.push({
-        from,
-        to: targetSquare,
-        piece,
-        flags: MoveFlags.None,
-      });
-    } else if (targetPiece.color !== piece.color) {
-      // Enemy piece - can capture
-      moves.push({
-        from,
-        to: targetSquare,
-        piece,
-        captured: targetPiece,
-        flags: MoveFlags.Capture,
-      });
-    }
-    // Own piece - skip (can't move here)
+    attacks &= attacks - 1n; // clear lowest set bit
   }
 }

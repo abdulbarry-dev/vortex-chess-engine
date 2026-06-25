@@ -10,11 +10,12 @@
 import * as readline from 'readline';
 import { Board } from './core/Board';
 import { GameState } from './core/GameState';
-import { Color, PieceType } from './core/Piece';
+import { Color } from './core/Piece';
 import { Evaluator } from './evaluation/Evaluator';
 import { MoveGenerator } from './move-generation/MoveGenerator';
 import { SearchEngine } from './search/SearchEngine';
-import { Move, MoveFlags } from './types/Move.types';
+import { Move } from './types/Move.types';
+import { MoveExecutor } from './core/MoveExecutor';
 import { parseFen } from './utils/FenParser';
 
 /**
@@ -200,107 +201,7 @@ class UciInterface {
    * Handles castling, en passant, promotions, and state updates
    */
   private makeMove(move: Move): void {
-    const piece = this.board.getPiece(move.from);
-    if (!piece) return;
-
-    // Clear en passant square from previous move
-    const previousEnPassant = this.state.enPassantSquare;
-    this.state.enPassantSquare = null;
-
-    // Handle castling
-    if (move.flags & MoveFlags.Castle) {
-      // Move king
-      this.board.setPiece(move.from, null);
-      this.board.setPiece(move.to, piece);
-      
-      // Move rook
-      const isKingside = move.to > move.from;
-      if (isKingside) {
-        const rookFrom = move.from + 3;
-        const rookTo = move.from + 1;
-        const rook = this.board.getPiece(rookFrom);
-        if (rook) {
-          this.board.setPiece(rookFrom, null);
-          this.board.setPiece(rookTo, rook);
-        }
-      } else {
-        const rookFrom = move.from - 4;
-        const rookTo = move.from - 1;
-        const rook = this.board.getPiece(rookFrom);
-        if (rook) {
-          this.board.setPiece(rookFrom, null);
-          this.board.setPiece(rookTo, rook);
-        }
-      }
-    }
-    // Handle en passant capture
-    else if (move.flags & MoveFlags.EnPassant) {
-      this.board.setPiece(move.from, null);
-      this.board.setPiece(move.to, piece);
-      
-      // Remove captured pawn
-      if (previousEnPassant !== null) {
-        const captureRank = Math.floor(move.from / 8);
-        const captureFile = previousEnPassant % 8;
-        const captureSquare = captureRank * 8 + captureFile;
-        this.board.setPiece(captureSquare, null);
-      }
-    }
-    // Handle promotion
-    else if (move.promotion) {
-      this.board.setPiece(move.from, null);
-      this.board.setPiece(move.to, {
-        type: move.promotion,
-        color: piece.color
-      });
-    }
-    // Regular move
-    else {
-      this.board.setPiece(move.from, null);
-      this.board.setPiece(move.to, piece);
-    }
-
-    // Set en passant square if double pawn push
-    if (move.flags & MoveFlags.DoublePawnPush) {
-      const direction = piece.color === Color.White ? -1 : 1;
-      this.state.enPassantSquare = move.to + (direction * 8);
-    }
-
-    // Update castling rights
-    if (piece.type === PieceType.King) {
-      if (piece.color === Color.White) {
-        this.state.castlingRights.white.kingSide = false;
-        this.state.castlingRights.white.queenSide = false;
-      } else {
-        this.state.castlingRights.black.kingSide = false;
-        this.state.castlingRights.black.queenSide = false;
-      }
-    }
-    if (piece.type === PieceType.Rook) {
-      // Check if rook moved from initial square
-      if (piece.color === Color.White) {
-        if (move.from === 0) this.state.castlingRights.white.queenSide = false;
-        if (move.from === 7) this.state.castlingRights.white.kingSide = false;
-      } else {
-        if (move.from === 56) this.state.castlingRights.black.queenSide = false;
-        if (move.from === 63) this.state.castlingRights.black.kingSide = false;
-      }
-    }
-
-    // Switch sides
-    this.state.currentPlayer = this.state.currentPlayer === Color.White ? Color.Black : Color.White;
-    
-    // Update move counters
-    if (piece.color === Color.Black) {
-      this.state.fullmoveNumber++;
-    }
-    
-    // Reset halfmove clock on pawn move or capture
-    if (piece.type === PieceType.Pawn || move.captured) {
-      this.state.halfmoveClock = 0;
-    } else {
-      this.state.halfmoveClock++;
-    }
+    MoveExecutor.makeMove(this.board, this.state, move);
   }
 
   /**

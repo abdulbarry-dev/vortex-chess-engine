@@ -16,7 +16,7 @@ import {
 } from '../constants/SearchConstants';
 import { staticExchangeEvaluation } from './StaticExchangeEvaluation';
 import { Board } from '../core/Board';
-import { PieceType } from '../core/Piece';
+import { Color, PieceType } from '../core/Piece';
 import { Move, MoveFlags } from '../types/Move.types';
 
 /**
@@ -32,11 +32,18 @@ import { Move, MoveFlags } from '../types/Move.types';
  */
 export class MoveOrderer {
   private killerMoves: Move[][];
+  private historyTable: number[][][]; // [color][from][to]
   private readonly maxPly: number = 64;
 
   constructor() {
     // Initialize killer moves array (2 killers per ply)
     this.killerMoves = Array.from({ length: this.maxPly }, () => []);
+    
+    // Initialize history table [color(0-1)][from(0-63)][to(0-63)]
+    this.historyTable = [
+      Array.from({ length: 64 }, () => new Array(64).fill(0)), // White (we will map 1 to 0)
+      Array.from({ length: 64 }, () => new Array(64).fill(0)), // Black (we will map -1 to 1)
+    ];
   }
 
   /**
@@ -108,8 +115,9 @@ export class MoveOrderer {
       return CASTLING_SCORE;
     }
 
-    // 6. Quiet moves - no special ordering (yet)
-    return 0;
+    // 6. Quiet moves - history heuristic
+    const colorIndex = move.piece.color === Color.White ? 0 : 1;
+    return this.historyTable[colorIndex]![move.from]![move.to]!;
   }
 
   /**
@@ -131,6 +139,33 @@ export class MoveOrderer {
     killers.unshift(move);
     if (killers.length > 2) {
       killers.pop();
+    }
+  }
+
+  /**
+   * Add a history move (quiet move caused beta cutoff)
+   */
+  addHistoryMove(move: Move, depth: number): void {
+    // Only apply to quiet moves
+    if (move.flags & MoveFlags.Capture || move.flags & MoveFlags.Promotion) return;
+
+    const colorIndex = move.piece.color === Color.White ? 0 : 1;
+    
+    // Increment history score by depth squared
+    // Cap at a reasonable maximum to avoid overflow/extreme bias
+    const bonus = depth * depth;
+    const currentScore = this.historyTable[colorIndex]![move.from]![move.to] || 0;
+    this.historyTable[colorIndex]![move.from]![move.to] = currentScore + bonus;
+    
+    // Scale down history periodically if it gets too large
+    if (this.historyTable[colorIndex]![move.from]![move.to]! > 1000000) {
+      for (let c = 0; c < 2; c++) {
+        for (let f = 0; f < 64; f++) {
+          for (let t = 0; t < 64; t++) {
+            this.historyTable[c]![f]![t] = Math.floor(this.historyTable[c]![f]![t]! / 2);
+          }
+        }
+      }
     }
   }
 

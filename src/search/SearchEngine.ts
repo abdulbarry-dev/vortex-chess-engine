@@ -45,9 +45,9 @@ export class SearchEngine {
     // this.moveGenerator = moveGenerator;
 
     // Initialize search components
-    this.alphaBeta = new AlphaBetaSearch(evaluator, moveGenerator);
-    this.transpositionTable = new TranspositionTable();
     this.moveOrderer = new MoveOrderer();
+    this.alphaBeta = new AlphaBetaSearch(evaluator, moveGenerator, this.moveOrderer);
+    this.transpositionTable = new TranspositionTable();
     // QuiescenceSearch is integrated into AlphaBetaSearch directly
     this.zobristHasher = new ZobristHasher();
     this.iterativeDeepening = new IterativeDeepeningSearch(
@@ -65,6 +65,9 @@ export class SearchEngine {
       useQuiescence: true,
       useMoveOrdering: true,
     };
+
+    // Wire dependencies
+    this.alphaBeta.setTranspositionTable(this.transpositionTable, this.zobristHasher);
   }
 
   /**

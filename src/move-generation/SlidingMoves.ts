@@ -5,110 +5,38 @@
 
 import { Board } from '../core/Board';
 import { Piece } from '../core/Piece';
-import { coordsToSquare, Square, squareToCoords } from '../core/Square';
+import { Square } from '../core/Square';
 import { Move, MoveFlags } from '../types/Move.types';
+import { getBishopAttacks, getRookAttacks } from '../bitboard/AttackTables';
+import { bitScanForward } from '../bitboard/Bitboard';
 
 /**
- * Direction vectors for sliding pieces
- * [rankDelta, fileDelta]
+ * Generate moves from a bitboard of attacks
  */
-export const ORTHOGONAL_DIRECTIONS = [
-  [-1, 0], // North
-  [1, 0],  // South
-  [0, -1], // West
-  [0, 1],  // East
-] as const;
-
-export const DIAGONAL_DIRECTIONS = [
-  [-1, -1], // Northwest
-  [-1, 1],  // Northeast
-  [1, -1],  // Southwest
-  [1, 1],   // Southeast
-] as const;
-
-export const ALL_DIRECTIONS = [
-  ...ORTHOGONAL_DIRECTIONS,
-  ...DIAGONAL_DIRECTIONS,
-] as const;
-
-export type Direction = readonly [number, number];
-
-/**
- * Generate sliding moves in a specific direction
- * Continues until hitting edge of board or another piece
- * 
- * @param board Current board state
- * @param from Starting square
- * @param piece Piece being moved
- * @param direction Direction vector [rankDelta, fileDelta]
- * @param moves Array to populate with generated moves
- */
-export function generateSlidingMovesInDirection(
+function extractMovesFromAttacks(
   board: Board,
   from: Square,
   piece: Piece,
-  direction: Direction,
-  moves: Move[]
+  attacks: bigint,
+  moves: Move[],
+  targetMask: bigint
 ): void {
-  const { rank: startRank, file: startFile } = squareToCoords(from);
-  const [rankDelta, fileDelta] = direction;
+  // Filter out squares occupied by our own pieces
+  let validAttacks = attacks & ~board.getColorOccupancy(piece.color) & targetMask;
 
-  let currentRank = startRank + rankDelta;
-  let currentFile = startFile + fileDelta;
+  while (validAttacks !== 0n) {
+    const to = bitScanForward(validAttacks);
+    const targetPiece = board.getPiece(to);
 
-  // Slide in direction until we hit edge of board or another piece
-  while (currentRank >= 0 && currentRank < 8 && currentFile >= 0 && currentFile < 8) {
-    const targetSquare = coordsToSquare(currentRank, currentFile);
-    const targetPiece = board.getPiece(targetSquare);
+    moves.push({
+      from,
+      to,
+      piece,
+      captured: targetPiece !== null ? targetPiece : undefined,
+      flags: targetPiece !== null ? MoveFlags.Capture : MoveFlags.None,
+    });
 
-    if (targetPiece === null) {
-      // Empty square - can move here
-      moves.push({
-        from,
-        to: targetSquare,
-        piece,
-        flags: MoveFlags.None,
-      });
-    } else if (targetPiece.color !== piece.color) {
-      // Enemy piece - can capture
-      moves.push({
-        from,
-        to: targetSquare,
-        piece,
-        captured: targetPiece,
-        flags: MoveFlags.Capture,
-      });
-      // Can't continue past this piece
-      break;
-    } else {
-      // Own piece - can't move here or past it
-      break;
-    }
-
-    // Continue in same direction
-    currentRank += rankDelta;
-    currentFile += fileDelta;
-  }
-}
-
-/**
- * Generate all sliding moves in multiple directions
- * 
- * @param board Current board state
- * @param from Starting square
- * @param piece Piece being moved
- * @param directions Array of direction vectors
- * @param moves Array to populate with generated moves
- */
-export function generateSlidingMoves(
-  board: Board,
-  from: Square,
-  piece: Piece,
-  directions: readonly Direction[],
-  moves: Move[]
-): void {
-  for (const direction of directions) {
-    generateSlidingMovesInDirection(board, from, piece, direction, moves);
+    validAttacks &= validAttacks - 1n; // clear lowest set bit
   }
 }
 
@@ -124,9 +52,11 @@ export function generateBishopMoves(
   board: Board,
   from: Square,
   piece: Piece,
-  moves: Move[]
+  moves: Move[],
+  targetMask: bigint = 0xFFFFFFFFFFFFFFFFn
 ): void {
-  generateSlidingMoves(board, from, piece, DIAGONAL_DIRECTIONS, moves);
+  const attacks = getBishopAttacks(from, board.getOccupancy());
+  extractMovesFromAttacks(board, from, piece, attacks, moves, targetMask);
 }
 
 /**
@@ -141,9 +71,11 @@ export function generateRookMoves(
   board: Board,
   from: Square,
   piece: Piece,
-  moves: Move[]
+  moves: Move[],
+  targetMask: bigint = 0xFFFFFFFFFFFFFFFFn
 ): void {
-  generateSlidingMoves(board, from, piece, ORTHOGONAL_DIRECTIONS, moves);
+  const attacks = getRookAttacks(from, board.getOccupancy());
+  extractMovesFromAttacks(board, from, piece, attacks, moves, targetMask);
 }
 
 /**
@@ -158,7 +90,10 @@ export function generateQueenMoves(
   board: Board,
   from: Square,
   piece: Piece,
-  moves: Move[]
+  moves: Move[],
+  targetMask: bigint = 0xFFFFFFFFFFFFFFFFn
 ): void {
-  generateSlidingMoves(board, from, piece, ALL_DIRECTIONS, moves);
+  const occupancy = board.getOccupancy();
+  const attacks = getBishopAttacks(from, occupancy) | getRookAttacks(from, occupancy);
+  extractMovesFromAttacks(board, from, piece, attacks, moves, targetMask);
 }

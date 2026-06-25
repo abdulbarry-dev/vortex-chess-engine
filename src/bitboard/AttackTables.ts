@@ -8,6 +8,7 @@
 import { Color } from '../core/Piece';
 import {
   EMPTY_BB,
+  FULL_BB,
   NOT_FILE_A,
   NOT_FILE_AB,
   NOT_FILE_GH,
@@ -64,7 +65,7 @@ function initKnightAttacks(): void {
     // SWW: -10 (1 rank down, 2 files left) — must not be on files A,B
     attacks |= (bb >> 10n) & NOT_FILE_GH;
 
-    KNIGHT_ATTACKS[sq] = attacks;
+    KNIGHT_ATTACKS[sq] = attacks & FULL_BB;
   }
 }
 
@@ -74,7 +75,7 @@ function initKingAttacks(): void {
     let attacks = EMPTY_BB;
 
     // North: +8
-    attacks |= bb << 8n;
+    attacks |= (bb << 8n) & FULL_BB;
     // South: -8
     attacks |= bb >> 8n;
     // East: +1 (must not wrap from H to A)
@@ -90,7 +91,7 @@ function initKingAttacks(): void {
     // SW: -9
     attacks |= (bb >> 9n) & NOT_FILE_H;
 
-    KING_ATTACKS[sq] = attacks;
+    KING_ATTACKS[sq] = attacks & FULL_BB;
   }
 }
 
@@ -102,7 +103,7 @@ function initPawnAttacks(): void {
     let whiteAttacks = EMPTY_BB;
     whiteAttacks |= (bb << 7n) & NOT_FILE_H; // Up-left: must not wrap from A to H
     whiteAttacks |= (bb << 9n) & NOT_FILE_A; // Up-right: must not wrap from H to A
-    PAWN_ATTACKS[0]![sq] = whiteAttacks;
+    PAWN_ATTACKS[0]![sq] = whiteAttacks & FULL_BB;
 
     // Black pawn attacks: down-left (-9) and down-right (-7)
     let blackAttacks = EMPTY_BB;

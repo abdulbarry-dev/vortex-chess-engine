@@ -82,7 +82,13 @@ export function staticExchangeEvaluation(board: Board, move: Move): number {
     const currentVal = pieceValues[depth] ?? 0;
     const nextVal = pieceValues[depth + 1] ?? 0;
     const captureScore = currentVal - nextVal;
-    pieceValues[depth] = Math.max(0, captureScore);
+    
+    // We can stop the capture sequence (stand pat) for all but the first move
+    if (depth === 0) {
+      pieceValues[0] = captureScore;
+    } else {
+      pieceValues[depth] = Math.max(0, captureScore);
+    }
   }
 
   return pieceValues[0] ?? 0;

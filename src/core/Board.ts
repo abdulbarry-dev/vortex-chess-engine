@@ -141,6 +141,42 @@ export class Board {
   }
 
   /**
+   * Set a piece at a given square without updating the NNUE accumulator.
+   * STRICTLY FOR USE IN LEGALITY CHECKING (make/unmake) where evaluation isn't needed.
+   */
+  setPieceFast(square: Square, piece: Piece | null): void {
+    if (!isValidSquare(square)) {
+      throw new Error(`Invalid square: ${square}`);
+    }
+
+    // Remove the old piece from bitboards
+    const oldPiece = this.squares[square];
+    if (oldPiece) {
+      const idx = bbIndex(oldPiece.color, oldPiece.type);
+      this.pieceBB[idx] = clearBit(this.pieceBB[idx] ?? EMPTY_BB, square);
+      if (oldPiece.color === Color.White) {
+        this.whiteBB = clearBit(this.whiteBB, square);
+      } else {
+        this.blackBB = clearBit(this.blackBB, square);
+      }
+      this.allBB = clearBit(this.allBB, square);
+    }
+
+    // Place the new piece
+    this.squares[square] = piece;
+    if (piece) {
+      const idx = bbIndex(piece.color, piece.type);
+      this.pieceBB[idx] = setBit(this.pieceBB[idx] ?? EMPTY_BB, square);
+      if (piece.color === Color.White) {
+        this.whiteBB = setBit(this.whiteBB, square);
+      } else {
+        this.blackBB = setBit(this.blackBB, square);
+      }
+      this.allBB = setBit(this.allBB, square);
+    }
+  }
+
+  /**
    * Check if a square is empty
    * @param square Square index (0-63)
    * @returns True if the square is empty

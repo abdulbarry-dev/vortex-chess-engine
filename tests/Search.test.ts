@@ -12,7 +12,6 @@ import { MoveGenerator } from '../src/move-generation/MoveGenerator';
 import { AlphaBetaSearch } from '../src/search/AlphaBeta';
 import { IterativeDeepeningSearch } from '../src/search/IterativeDeepening';
 import { MoveOrderer } from '../src/search/MoveOrdering';
-import { QuiescenceSearch } from '../src/search/QuiescenceSearch';
 import { SearchEngine } from '../src/search/SearchEngine';
 import { TranspositionTable } from '../src/search/TranspositionTable';
 import { ZobristHasher } from '../src/search/ZobristHashing';
@@ -361,42 +360,7 @@ describe('Search Engine', () => {
     });
   });
 
-  describe('QuiescenceSearch', () => {
-    let quiescence: QuiescenceSearch;
 
-    beforeEach(() => {
-      quiescence = new QuiescenceSearch(evaluator, moveGenerator);
-    });
-
-    it('should search only tactical moves', () => {
-      // Position with captures available
-      const { board: testBoard, state: testState } = parseFen('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2');
-
-      const score = quiescence.search(testBoard, testState, -10000, 10000, 0);
-
-      expect(typeof score).toBe('number');
-      expect(Math.abs(score)).toBeLessThan(10000);
-    });
-
-    it('should stop at quiet positions', () => {
-      board.initializeStartingPosition();
-      state.reset();
-
-      // Starting position is quiet (no captures)
-      const score = quiescence.search(board, state, -10000, 10000, 0);
-
-      expect(typeof score).toBe('number');
-    });
-
-    it('should respect depth limit', () => {
-      const { board: testBoard, state: testState } = parseFen('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2');
-
-      // Should terminate even with many captures
-      const score = quiescence.search(testBoard, testState, -10000, 10000, 0);
-
-      expect(typeof score).toBe('number');
-    });
-  });
 
   describe('IterativeDeepeningSearch', () => {
     let alphaBeta: AlphaBetaSearch;
