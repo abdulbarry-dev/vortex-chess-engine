@@ -7,6 +7,7 @@
 import { EMPTY_BB, clearBit, hasBit, setBit, bitScanForward, popCount } from '../bitboard/Bitboard';
 import { Color, Piece, PieceType } from './Piece';
 import { Square, isValidSquare } from './Square';
+import { Accumulator } from '../nnue/Accumulator';
 
 /**
  * Compute a unique index into the pieceBB array for a given color and piece type.
@@ -41,6 +42,9 @@ export class Board {
   /** Total occupancy (white | black) */
   private allBB: bigint;
 
+  /** NNUE Accumulator for incrementally updated hidden layer */
+  private accumulator: Accumulator;
+
   /**
    * Create a new board (empty by default)
    */
@@ -50,6 +54,7 @@ export class Board {
     this.whiteBB = EMPTY_BB;
     this.blackBB = EMPTY_BB;
     this.allBB = EMPTY_BB;
+    this.accumulator = new Accumulator();
   }
 
   // ── Bitboard accessors ────────────────────────────────────────────────────
@@ -73,6 +78,13 @@ export class Board {
    */
   getOccupancy(): bigint {
     return this.allBB;
+  }
+
+  /**
+   * Get the NNUE accumulator
+   */
+  getAccumulator(): Accumulator {
+    return this.accumulator;
   }
 
   // ── Core piece access ─────────────────────────────────────────────────────
@@ -110,6 +122,7 @@ export class Board {
         this.blackBB = clearBit(this.blackBB, square);
       }
       this.allBB = clearBit(this.allBB, square);
+      this.accumulator.removeFeature(oldPiece.type, oldPiece.color, square);
     }
 
     // Place the new piece
@@ -123,6 +136,7 @@ export class Board {
         this.blackBB = setBit(this.blackBB, square);
       }
       this.allBB = setBit(this.allBB, square);
+      this.accumulator.addFeature(piece.type, piece.color, square);
     }
   }
 
@@ -154,6 +168,7 @@ export class Board {
     this.whiteBB = EMPTY_BB;
     this.blackBB = EMPTY_BB;
     this.allBB = EMPTY_BB;
+    this.accumulator = new Accumulator();
   }
 
   /**
@@ -213,6 +228,7 @@ export class Board {
     newBoard.whiteBB = this.whiteBB;
     newBoard.blackBB = this.blackBB;
     newBoard.allBB = this.allBB;
+    newBoard.accumulator.copyFrom(this.accumulator);
     return newBoard;
   }
 

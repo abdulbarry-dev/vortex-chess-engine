@@ -8,12 +8,13 @@
 
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
-import { PieceType } from '../core/Piece';
+import { Color, PieceType } from '../core/Piece';
 import { KingSafetyEvaluator } from './KingSafetyEvaluator';
 import { MaterialEvaluator } from './MaterialEvaluator';
 import { MobilityEvaluator } from './MobilityEvaluator';
 import { PawnStructureEvaluator } from './PawnStructureEvaluator';
 import { PieceSquareEvaluator } from './PieceSquareTables';
+import { NnueEvaluator } from '../nnue/NnueEvaluator';
 
 /**
  * Evaluation component weights
@@ -43,6 +44,10 @@ export class Evaluator {
   private readonly pawnStructure: PawnStructureEvaluator;
   private readonly kingSafety: KingSafetyEvaluator;
   private readonly mobility: MobilityEvaluator | null;
+  private readonly nnue: NnueEvaluator;
+  
+  /** Toggle NNUE evaluation */
+  public useNnue: boolean = false;
 
   constructor(
     material?: MaterialEvaluator,
@@ -56,6 +61,7 @@ export class Evaluator {
     this.pawnStructure = pawnStructure || new PawnStructureEvaluator();
     this.kingSafety = kingSafety || new KingSafetyEvaluator();
     this.mobility = mobility || null; // Null = skip mobility evaluation
+    this.nnue = new NnueEvaluator();
   }
 
   /**
@@ -67,6 +73,13 @@ export class Evaluator {
    * @returns Evaluation score in centipawns
    */
   evaluate(board: Board, state: GameState): number {
+    if (this.useNnue) {
+      // NNUE returns score from perspective of side to move
+      const nnueScore = this.nnue.evaluate(board, state);
+      // Evaluator interface returns score from white's perspective
+      return state.currentPlayer === Color.White ? nnueScore : -nnueScore;
+    }
+
     // Material evaluation (most important) - always fast
     const materialScore = this.material.evaluate(board) * EVALUATION_WEIGHTS.MATERIAL;
 
