@@ -14,6 +14,7 @@ import {
   MVV_LVA_OFFSET,
   PROMOTION_SCORE,
 } from '../constants/SearchConstants';
+import { staticExchangeEvaluation } from './StaticExchangeEvaluation';
 import { Board } from '../core/Board';
 import { PieceType } from '../core/Piece';
 import { Move, MoveFlags } from '../types/Move.types';
@@ -71,7 +72,7 @@ export class MoveOrderer {
    */
   private scoreMove(
     move: Move,
-    _board: Board, // Reserved for future SEE evaluation
+    board: Board,
     hashMove: Move | null,
     ply: number
   ): number {
@@ -80,11 +81,16 @@ export class MoveOrderer {
       return HASH_MOVE_SCORE;
     }
 
-    // 2. Captures - MVV-LVA
+    // 2. Captures - SEE + MVV-LVA
     if (move.flags & MoveFlags.Capture && move.captured) {
+      const seeScore = staticExchangeEvaluation(board, move);
+      if (seeScore < 0) {
+        // Losing capture, lower priority than quiet moves
+        return seeScore;
+      }
       const victimValue = this.getPieceValue(move.captured.type);
       const attackerValue = this.getPieceValue(move.piece.type);
-      return MVV_LVA_OFFSET + victimValue * 10 - attackerValue;
+      return MVV_LVA_OFFSET + seeScore + (victimValue * 10 - attackerValue);
     }
 
     // 3. Killer moves

@@ -14,6 +14,7 @@ import { GameState } from '../core/GameState';
 import { Evaluator } from '../evaluation/Evaluator';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { Move, MoveFlags } from '../types/Move.types';
+import { staticExchangeEvaluation } from './StaticExchangeEvaluation';
 
 /**
  * Quiescence search for tactical positions
@@ -78,13 +79,15 @@ export class QuiescenceSearch {
     // Generate only tactical moves (captures, promotions)
     const captures = this.moveGenerator.generateCaptures(board, state);
 
-    // Order captures by MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
-    this.orderCaptures(captures);
+    // Order captures by SEE and MVV-LVA
+    this.orderCaptures(captures, board);
 
     // Search captures
     for (const move of captures) {
-      // SEE pruning - skip bad captures (TODO: implement SEE)
-      // For now, search all captures
+      // SEE pruning - skip bad captures
+      if (staticExchangeEvaluation(board, move) < 0) {
+        continue;
+      }
 
       // Make move (clone board and state)
       const boardCopy = board.clone();
@@ -115,10 +118,10 @@ export class QuiescenceSearch {
   /**
    * Order captures by MVV-LVA
    */
-  private orderCaptures(moves: Move[]): void {
+  private orderCaptures(moves: Move[], board: Board): void {
     moves.sort((a, b) => {
-      const scoreA = this.getCaptureScore(a);
-      const scoreB = this.getCaptureScore(b);
+      const scoreA = this.getCaptureScore(a, board);
+      const scoreB = this.getCaptureScore(b, board);
       return scoreB - scoreA;
     });
   }
@@ -126,15 +129,20 @@ export class QuiescenceSearch {
   /**
    * Get capture score for ordering
    */
-  private getCaptureScore(move: Move): number {
+  private getCaptureScore(move: Move, board: Board): number {
     if (!(move.flags & MoveFlags.Capture) || !move.captured) {
       return 0;
     }
 
-    // MVV-LVA: victim value * 10 - attacker value
+    const seeScore = staticExchangeEvaluation(board, move);
+    if (seeScore < 0) {
+      return seeScore; // Negative score sorts to end
+    }
+
+    // MVV-LVA + SEE
     const victimValue = this.getPieceValue(move.captured.type);
     const attackerValue = this.getPieceValue(move.piece.type);
-    return victimValue * 10 - attackerValue;
+    return seeScore + (victimValue * 10 - attackerValue);
   }
 
   /**
