@@ -232,6 +232,15 @@ export class AlphaBetaSearch {
       state.switchTurn();
       state.enPassantSquare = epSquare;
       
+      // Explicit Threat Forecasting: Only consider it a threat if the score drops massively
+      if (threatMove !== null) {
+        const staticEval = this.evaluator.evaluate(board, state) * state.currentPlayer;
+        if (staticEval - nullScore < 200) {
+          // The threat is not severe enough to warrant expensive prophylactic extensions
+          threatMove = null; 
+        }
+      }
+      
       // If null move causes cutoff, prune this branch
       if (nullScore >= beta) {
         this.nullMovePruning.recordCutoff();
