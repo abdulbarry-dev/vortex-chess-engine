@@ -124,6 +124,9 @@ async function main() {
     { name: 'WEIGHT_PAWN_STRUCTURE', obj: EVALUATION_WEIGHTS, key: 'PAWN_STRUCTURE', step: 0.1 },
     { name: 'WEIGHT_KING_SAFETY', obj: EVALUATION_WEIGHTS, key: 'KING_SAFETY', step: 0.1 },
     { name: 'WEIGHT_MOBILITY', obj: EVALUATION_WEIGHTS, key: 'MOBILITY', step: 0.1 },
+    { name: 'WEIGHT_BLOCKADE', obj: EVALUATION_WEIGHTS, key: 'BLOCKADE', step: 0.1 },
+    { name: 'WEIGHT_OVEREXTENSION', obj: EVALUATION_WEIGHTS, key: 'OVEREXTENSION', step: 0.1 },
+    { name: 'WEIGHT_COORDINATION', obj: EVALUATION_WEIGHTS, key: 'COORDINATION', step: 0.1 },
   ];
 
   const iterations = 50; // Keep it small for demonstration
