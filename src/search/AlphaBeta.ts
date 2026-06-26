@@ -213,7 +213,11 @@ export class AlphaBetaSearch {
     // Null Move Pruning (NMP)
     // If we can pass (do nothing) and still cause beta cutoff, position is too good
     let threatMove: Move | null = null;
-    const canDoNullMove = this.nullMovePruning.shouldTryNullMove(board, state, depth, beta, isInCheck(board, state.currentPlayer), false);
+    const inCheck = isInCheck(board, state.currentPlayer);
+    const canDoNullMove = this.nullMovePruning.shouldTryNullMove(board, state, depth, beta, inCheck, false);
+    
+    // Cache static eval to avoid redundant expensive calls
+    let staticEval: number | null = null;
     
     if (canDoNullMove) {
       this.nullMovePruning.recordAttempt();
@@ -239,7 +243,9 @@ export class AlphaBetaSearch {
       
       // Explicit Threat Forecasting: Only consider it a threat if the score drops massively
       if (threatMove !== null) {
-        const staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
+        if (staticEval === null) {
+          staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
+        }
         if (staticEval - nullScore < 200) {
           // The threat is not severe enough to warrant expensive prophylactic extensions
           threatMove = null; 
@@ -257,10 +263,11 @@ export class AlphaBetaSearch {
     // If static evaluation is significantly below alpha, quiet moves are unlikely to raise alpha
     let futilityPruningActive = false;
     let futilityMargin = 0;
-    const inCheck = isInCheck(board, state.currentPlayer);
     
     if (depth <= 3 && !inCheck && Math.abs(alpha) < CHECKMATE_SCORE - 100) {
-      const staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
+      if (staticEval === null) {
+        staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
+      }
       futilityMargin = depth * 200; // 200, 400, 600 margin depending on depth
       
       if (staticEval + futilityMargin <= alpha) {
@@ -306,62 +313,39 @@ export class AlphaBetaSearch {
       moveCount++;
       
       // Check if move is prophylactic
-      // Disrupts threat if it moves to threat's start/end square, or captures a piece
       let isProphylactic = false;
-      let threatIsDangerous = false;
+      let extension = 0;
 
       if (threatMove !== null) {
         isProphylactic = (move.to === threatMove.to || move.to === threatMove.from || move.captured !== undefined);
         
-        // Evaluate if the threat move is a dangerous attack near our king
-        const ourColor = state.currentPlayer; // We are the one considering the move
-        const ourKingSquare = board.getAllPieces().find(([_, p]) => p.type === PieceType.King && p.color === ourColor)?.[0];
-        if (ourKingSquare !== undefined) {
-          const kingFile = ourKingSquare % 8;
-          const kingRank = Math.floor(ourKingSquare / 8);
-          const threatFile = threatMove.to % 8;
-          const threatRank = Math.floor(threatMove.to / 8);
-          const distance = Math.max(Math.abs(kingFile - threatFile), Math.abs(kingRank - threatRank));
+        if (isProphylactic && depth < MAX_SEARCH_DEPTH - 1) {
+          extension = 1; // Prophylactic Extension
           
-          if (distance <= 2) {
-            threatIsDangerous = true;
+          // Evaluate if the threat move is a dangerous attack near our king
+          const ourKingSquare = board.findKing(state.currentPlayer);
+          if (ourKingSquare !== null) {
+            const kingFile = ourKingSquare % 8;
+            const kingRank = Math.floor(ourKingSquare / 8);
+            const threatFile = threatMove.to % 8;
+            const threatRank = Math.floor(threatMove.to / 8);
+            const distance = Math.max(Math.abs(kingFile - threatFile), Math.abs(kingRank - threatRank));
+            
+            if (distance <= 2 && depth < MAX_SEARCH_DEPTH - 2) {
+              extension = 2; // Dangerous Threat Extension - look even deeper to defend the king
+            }
           }
-        }
-      }
-      
-      let extension = 0;
-      if (isProphylactic && depth < MAX_SEARCH_DEPTH - 1) {
-        extension = 1; // Prophylactic Extension
-        if (threatIsDangerous && depth < MAX_SEARCH_DEPTH - 2) {
-          extension = 2; // Dangerous Threat Extension - look even deeper to defend the king
-        }
-      }
-      
-      // Decision Compression & Check Extension
-      // If the move restricts the opponent significantly (e.g. check), extend search
-      const givesCheck = isInCheck(board, state.currentPlayer);
-      if (givesCheck && depth < MAX_SEARCH_DEPTH - 1) {
-        extension = Math.max(extension, 1);
-      } else if (depth >= 3 && moveCount <= 2 && !move.captured) {
-        // For the best quiet moves, if they severely restrict opponent's safe mobility, extend
-        // We approximate this by seeing if the opponent has very few safe squares left
-        const opponentColor = state.currentPlayer;
-        const attackedByUs = getAttackedSquares(board, opponentColor === 1 ? -1 : 1);
-        // Simple heuristic: if we attack a huge portion of the board, it's highly restrictive
-        // A bitboard has 64 bits. If we attack > 30 squares, that's highly restrictive.
-        let attackedCount = 0;
-        let bb = attackedByUs;
-        while (bb) {
-          attackedCount++;
-          bb &= bb - 1n;
-        }
-        if (attackedCount > 30 && depth < MAX_SEARCH_DEPTH - 1) {
-          extension = Math.max(extension, 1); // Decision Compression Extension
         }
       }
       
       // Make move in place
       const history = MoveExecutor.makeMove(board, state, move);
+
+      // Check if move gives check (now that the move is made, opponent is in check if currentPlayer is in check)
+      const givesCheck = isInCheck(board, state.currentPlayer);
+      if (givesCheck && depth < MAX_SEARCH_DEPTH - 1) {
+        extension = Math.max(extension, 1);
+      }
 
       let score: number;
 
@@ -372,7 +356,7 @@ export class AlphaBetaSearch {
         moveCount > 4 &&
         !move.captured &&
         !move.promotion &&
-        !isInCheck(board, state.currentPlayer) &&
+        !givesCheck && // Do not reduce if it gives check
         !isProphylactic; // Do not reduce prophylactic moves
 
       if (canReduceDepth) {
