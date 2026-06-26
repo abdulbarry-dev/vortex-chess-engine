@@ -147,8 +147,10 @@ export class PieceSquareEvaluator {
    * @returns Table value in centipawns
    */
   private getTableValue(square: Square, piece: Piece, isEndgame: boolean): number {
-    // Flip square for black pieces (tables are from white's perspective)
-    const adjustedSquare = piece.color === Color.White ? square : this.flipSquare(square);
+    // The tables are defined with Rank 8 at index 0 and Rank 1 at index 56.
+    // Because Vortex uses square 0 for a1, White needs to be flipped to match the table.
+    // Black does not need to be flipped.
+    const adjustedSquare = piece.color === Color.White ? this.flipSquare(square) : square;
 
     switch (piece.type) {
       case PieceType.Pawn:

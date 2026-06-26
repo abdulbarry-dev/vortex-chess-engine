@@ -66,6 +66,19 @@ export class PawnStructureEvaluator {
         score += BACKWARD_PAWN_PENALTY;
       }
 
+      // Fortress Recognition: Pawn Chain Bonus
+      // Reward pawns that are defended by other pawns, forming a solid structure
+      if (this.isDefendedByPawn(pawns, square, color)) {
+        score += 15;
+      }
+
+      // Fortress Recognition: Locked Pawn Bonus
+      // Reward pawns that are blocked by enemy pawns. This prevents the engine
+      // from voluntarily breaking established pawn blockades in defensive positions.
+      if (this.isBlockedByEnemyPawn(board, square, color)) {
+        score += 15;
+      }
+
       // Check for passed pawns
       if (this.isPassed(board, square, color)) {
         const rank = getRank(square);
@@ -85,7 +98,8 @@ export class PawnStructureEvaluator {
              bonus = Math.floor(bonus / 4); 
              
              // Implicitly reward the defender's blockade by penalizing the pawn owner
-             score -= 30; // +30 centipawns for the blockading piece's side
+             // Increased to 40 to strongly encourage blockade
+             score -= 40; 
           }
         }
         score += bonus;
@@ -200,5 +214,40 @@ export class PawnStructureEvaluator {
     }
 
     return true;
+  }
+
+  /**
+   * Check if a pawn is defended by another friendly pawn
+   */
+  private isDefendedByPawn(pawns: Square[], square: Square, color: Color): boolean {
+    const direction = color === Color.White ? -1 : 1; // Look backwards for defenders
+    const file = getFile(square);
+    const rank = getRank(square);
+    
+    // Check left and right defender squares
+    const defenderRanks = [rank + direction];
+    const defenderFiles = [file - 1, file + 1].filter(f => f >= 0 && f < 8);
+    
+    for (const pawn of pawns) {
+      if (defenderRanks.includes(getRank(pawn)) && defenderFiles.includes(getFile(pawn))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if a pawn is immediately blocked by an enemy pawn
+   */
+  private isBlockedByEnemyPawn(board: Board, square: Square, color: Color): boolean {
+    const direction = color === Color.White ? 1 : -1;
+    const advanceSquare = square + (direction * 8);
+    if (advanceSquare >= 0 && advanceSquare <= 63) {
+      const piece = board.getPiece(advanceSquare);
+      if (piece && piece.type === PieceType.Pawn && piece.color !== color) {
+        return true;
+      }
+    }
+    return false;
   }
 }

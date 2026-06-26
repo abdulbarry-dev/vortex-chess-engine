@@ -64,14 +64,19 @@ export class OverextensionEvaluator {
       const isDefendedByUs = (friendlyAttacks & (1n << BigInt(square))) !== 0n;
 
       if (piece.type === PieceType.Pawn) {
+        // Flank pawns (a, b, g, h files) pushed aggressively are highly brittle
+        const file = square % 8;
+        const isFlank = file < 2 || file > 5;
+        const multiplier = isFlank ? 1.5 : 1.0;
+
         // Advanced pawn without friendly pawn/piece support
         if (!isDefendedByUs) {
-          penalty += Math.abs(OVEREXTENDED_PAWN_PENALTY);
+          penalty += Math.round(Math.abs(OVEREXTENDED_PAWN_PENALTY) * multiplier);
         } else {
-          // Brittleness Evaluation: Check if the advanced pawn storm is brittle (supported by exactly 1 piece)
+          // Brittleness Detection: Check if the advanced pawn storm is brittle (supported by exactly 1 piece)
           const defenders = getAttackersOf(board, square, color);
           if (popCount(defenders) === 1) {
-            penalty += Math.abs(BRITTLE_PAWN_PENALTY);
+            penalty += Math.round(Math.abs(BRITTLE_PAWN_PENALTY) * multiplier);
           }
         }
       } else if (piece.type !== PieceType.King) {

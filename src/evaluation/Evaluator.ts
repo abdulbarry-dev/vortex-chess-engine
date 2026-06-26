@@ -17,6 +17,7 @@ import { PieceSquareEvaluator } from './PieceSquareTables';
 import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
+import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 /**
  * Evaluation component weights
@@ -180,6 +181,18 @@ export class Evaluator {
       if (this.mobility) {
         finalScore += Math.round(this.mobility.evaluate(board, state, isEndgame) * 0.5);
       }
+      
+      // Central Strikes: Value central control when the opponent has overextended on the flanks
+      const myColor = state.currentPlayer;
+      const myAttacks = getAttackedSquares(board, myColor);
+      let centralStrikes = 0;
+      if ((myAttacks & (1n << 27n)) !== 0n) centralStrikes++; // d4
+      if ((myAttacks & (1n << 28n)) !== 0n) centralStrikes++; // e4
+      if ((myAttacks & (1n << 35n)) !== 0n) centralStrikes++; // d5
+      if ((myAttacks & (1n << 36n)) !== 0n) centralStrikes++; // e5
+      
+      finalScore += centralStrikes * 10;
+      
       // Add a raw initiative bonus for counterattacking
       finalScore += 40; 
     }

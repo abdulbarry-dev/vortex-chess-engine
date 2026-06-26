@@ -131,7 +131,7 @@ export class FutilityPruning {
     }
 
     // Get static evaluation
-    const staticEval = this.evaluator.evaluate(board, state);
+    const staticEval = this.evaluator.evaluate(board, state) * state.currentPlayer;
 
     // Get futility margin for this depth
     const margin = this.getFutilityMargin(depth);
@@ -181,7 +181,7 @@ export class FutilityPruning {
     }
 
     // Use position-level futility check
-    const eval_value = staticEval ?? this.evaluator.evaluate(board, state);
+    const eval_value = staticEval ?? this.evaluator.evaluate(board, state) * state.currentPlayer;
     const margin = this.getFutilityMargin(depth);
 
     return eval_value + margin <= alpha;

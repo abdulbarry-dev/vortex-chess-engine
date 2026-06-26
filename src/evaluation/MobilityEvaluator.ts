@@ -71,6 +71,9 @@ export class MobilityEvaluator {
     
     let safeMoves = 0;
     for (const move of moves) {
+      // Do not count King moves for mobility, as it encourages the King to walk out
+      if (move.piece.type === 6) continue; // PieceType.King is 6
+      
       if ((attackedSquares & (1n << BigInt(move.to))) === 0n) {
         safeMoves++;
       }

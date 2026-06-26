@@ -15,6 +15,7 @@ import { GameState } from '../core/GameState';
 import { Move } from '../types/Move.types';
 import { SearchResult } from '../types/Search.types';
 import { AlphaBetaSearch } from './AlphaBeta';
+import { AspirationWindows } from './AspirationWindows';
 import { MoveOrderer } from './MoveOrdering';
 import { TranspositionTable } from './TranspositionTable';
 
@@ -29,6 +30,7 @@ export class IterativeDeepeningSearch {
   private readonly alphaBeta: AlphaBetaSearch;
   private readonly transpositionTable: TranspositionTable | null;
   private readonly moveOrderer: MoveOrderer;
+  private readonly aspirationWindows = new AspirationWindows();
   private startTime: number = 0;
   private timeLimitMs: number = Infinity;
   private stopped: boolean = false;
@@ -85,11 +87,62 @@ export class IterativeDeepeningSearch {
       }
 
       // Set time limit for this iteration
-      const remainingTime = this.timeLimitMs - (Date.now() - this.startTime);
+      let remainingTime = this.timeLimitMs - (Date.now() - this.startTime);
       this.alphaBeta.setTimeLimit(remainingTime - TIME_BUFFER_MS);
 
-      // Search at this depth
-      const result = this.alphaBeta.searchRoot(board, state, depth);
+      // Aspiration Windows Setup
+      let alpha = -Infinity;
+      let beta = Infinity;
+      
+      if (depth >= 3) {
+        // Use aspiration windows for depth 3+ where we have a reliable previous score
+        const window = this.aspirationWindows.getInitialWindow(bestScore, depth);
+        alpha = window.alpha;
+        beta = window.beta;
+      }
+
+      let result: { move: Move | null; score: number };
+      let iterationTimeExtended = false;
+
+      // Aspiration window search loop
+      while (true) {
+        result = this.alphaBeta.searchRoot(board, state, depth, alpha, beta);
+
+        // Check if search was stopped early due to time
+        const elapsed = Date.now() - this.startTime;
+        if (elapsed >= this.timeLimitMs - TIME_BUFFER_MS) {
+          break;
+        }
+
+        // Aspiration window checks
+        if (result.score <= alpha) {
+          // Fail Low (Score is worse than expected - potential defensive panic!)
+          const newWindow = this.aspirationWindows.widenWindow(alpha, beta, result.score, true);
+          alpha = newWindow.alpha;
+          beta = newWindow.beta;
+
+          // Defensive Time Allocation: If evaluation drops suddenly (fail-low),
+          // this is a critical defensive moment. Extend the search time by 50%
+          // of the original allocation, but only once per depth, to prevent panic blunders.
+          if (!iterationTimeExtended) {
+            const timeExtension = Math.floor(this.timeLimitMs * 0.5);
+            this.timeLimitMs += timeExtension;
+            iterationTimeExtended = true;
+            
+            // Update time limit for the alpha-beta searcher
+            remainingTime = this.timeLimitMs - (Date.now() - this.startTime);
+            this.alphaBeta.setTimeLimit(remainingTime - TIME_BUFFER_MS);
+          }
+        } else if (result.score >= beta) {
+          // Fail High (Score is better than expected)
+          const newWindow = this.aspirationWindows.widenWindow(alpha, beta, result.score, false);
+          alpha = newWindow.alpha;
+          beta = newWindow.beta;
+        } else {
+          // Exact score within window, we're done with this depth
+          break;
+        }
+      }
 
       // Check if search was stopped early
       const elapsed = Date.now() - this.startTime;
@@ -98,7 +151,7 @@ export class IterativeDeepeningSearch {
         break;
       }
 
-      // Update best move
+      // Update best move (only if we didn't time out during fail-high/low resolution)
       bestMove = result.move;
       bestScore = result.score;
 

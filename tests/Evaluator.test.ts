@@ -137,11 +137,11 @@ describe('PawnStructureEvaluator', () => {
 
   it('should reward passed pawns', () => {
     // Clear passed pawn: white c-pawn with no black pawns on b/c/d files
-    const { board: passedPawn } = parseFEN('rnbqkb1r/1p1ppppp/p6n/2P5/8/8/PP1PPPPP/RNBQKBNR w KQkq - 0 1');
-    const { board: normal } = parseFEN('rnbqkb1r/pppppppp/7n/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    const { board: passedPawn } = parseFEN('rnbqkb1r/p3pppp/7n/2P5/8/8/PP1PPPPP/RNBQKBNR w KQkq - 0 1');
+    const { board: normal } = parseFEN('rnbqkb1r/p3pppp/7n/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
     
-    const passedScore = pawnStructureEvaluator.evaluate(passedPawn);
-    const normalScore = pawnStructureEvaluator.evaluate(normal);
+    const passedScore = pawnStructureEvaluator.evaluate(passedPawn, false);
+    const normalScore = pawnStructureEvaluator.evaluate(normal, false);
     
     // White c5 pawn is passed (black has no c-pawn and b-pawn hasn't advanced)
     expect(passedScore).toBeGreaterThan(normalScore);

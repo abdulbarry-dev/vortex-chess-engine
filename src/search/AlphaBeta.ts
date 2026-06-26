@@ -6,6 +6,7 @@
 import { CHECKMATE_SCORE, MAX_SEARCH_DEPTH } from '../constants/SearchConstants';
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
+import { PieceType } from '../core/Piece';
 import { Evaluator } from '../evaluation/Evaluator';
 import { isInCheck, isMoveLegal } from '../move-generation/LegalityChecker';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
@@ -180,7 +181,7 @@ export class AlphaBetaSearch {
 
     // Check maximum depth
     if (ply >= MAX_SEARCH_DEPTH) {
-      return this.evaluator.evaluate(board, state);
+      return this.evaluator.evaluate(board, state) * state.currentPlayer;
     }
 
     // Transposition Table Probe
@@ -245,7 +246,7 @@ export class AlphaBetaSearch {
     const inCheck = isInCheck(board, state.currentPlayer);
     
     if (depth <= 3 && !inCheck && Math.abs(alpha) < CHECKMATE_SCORE - 100) {
-      const staticEval = this.evaluator.evaluate(board, state);
+      const staticEval = this.evaluator.evaluate(board, state) * state.currentPlayer;
       futilityMargin = depth * 200; // 200, 400, 600 margin depending on depth
       
       if (staticEval + futilityMargin <= alpha) {
@@ -292,22 +293,41 @@ export class AlphaBetaSearch {
       
       // Check if move is prophylactic
       // Disrupts threat if it moves to threat's start/end square, or captures a piece
-      const isProphylactic = threatMove !== null && (
-        move.to === threatMove.to || 
-        move.to === threatMove.from || 
-        move.captured !== undefined
-      );
+      let isProphylactic = false;
+      let threatIsDangerous = false;
+
+      if (threatMove !== null) {
+        isProphylactic = (move.to === threatMove.to || move.to === threatMove.from || move.captured !== undefined);
+        
+        // Evaluate if the threat move is a dangerous attack near our king
+        const ourColor = state.currentPlayer; // We are the one considering the move
+        const ourKingSquare = board.getAllPieces().find(([_, p]) => p.type === PieceType.King && p.color === ourColor)?.[0];
+        if (ourKingSquare !== undefined) {
+          const kingFile = ourKingSquare % 8;
+          const kingRank = Math.floor(ourKingSquare / 8);
+          const threatFile = threatMove.to % 8;
+          const threatRank = Math.floor(threatMove.to / 8);
+          const distance = Math.max(Math.abs(kingFile - threatFile), Math.abs(kingRank - threatRank));
+          
+          if (distance <= 2) {
+            threatIsDangerous = true;
+          }
+        }
+      }
       
       let extension = 0;
       if (isProphylactic && depth < MAX_SEARCH_DEPTH - 1) {
         extension = 1; // Prophylactic Extension
+        if (threatIsDangerous && depth < MAX_SEARCH_DEPTH - 2) {
+          extension = 2; // Dangerous Threat Extension - look even deeper to defend the king
+        }
       }
       
       // Decision Compression & Check Extension
       // If the move restricts the opponent significantly (e.g. check), extend search
       const givesCheck = isInCheck(board, state.currentPlayer);
       if (givesCheck && depth < MAX_SEARCH_DEPTH - 1) {
-        extension = 1;
+        extension = Math.max(extension, 1);
       } else if (depth >= 3 && moveCount <= 2 && !move.captured) {
         // For the best quiet moves, if they severely restrict opponent's safe mobility, extend
         // We approximate this by seeing if the opponent has very few safe squares left
@@ -322,7 +342,7 @@ export class AlphaBetaSearch {
           bb &= bb - 1n;
         }
         if (attackedCount > 30 && depth < MAX_SEARCH_DEPTH - 1) {
-          extension = 1; // Decision Compression Extension
+          extension = Math.max(extension, 1); // Decision Compression Extension
         }
       }
       
@@ -446,11 +466,11 @@ export class AlphaBetaSearch {
     
     // Check limits
     if (this.shouldStop() || ply >= MAX_SEARCH_DEPTH) {
-      return this.evaluator.evaluate(board, state);
+      return this.evaluator.evaluate(board, state) * state.currentPlayer;
     }
     
     // Stand pat score
-    const standPat = this.evaluator.evaluate(board, state);
+    const standPat = this.evaluator.evaluate(board, state) * state.currentPlayer;
     if (standPat >= beta) {
       return beta; // Fail-hard beta cutoff
     }
