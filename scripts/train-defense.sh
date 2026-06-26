@@ -7,8 +7,13 @@ echo "======================================================="
 
 # 1. Download a highly tactical opening suite (UHO - Unbalanced Human Openings)
 # This forces Vortex out of its comfort zone and prevents move-10 draws.
-echo "[1/4] Downloading UHO tactical opening suite..."
-curl -L -o scripts/uho.epd https://raw.githubusercontent.com/official-stockfish/books/master/UHO_4060_v2.epd
+echo "[1/4] Checking for UHO tactical opening suite..."
+if [ ! -f "scripts/uho.epd" ]; then
+  echo "      Downloading UHO suite (requires internet connection)..."
+  curl -L -o scripts/uho.epd https://raw.githubusercontent.com/official-stockfish/books/master/UHO_4060_v2.epd
+else
+  echo "      scripts/uho.epd already exists, skipping download (Offline mode active)."
+fi
 
 # 2. Run 10,000 games of Vortex vs Vortex using the tactical openings
 echo "[2/4] Running 10,000 self-play games (this will take a few hours)..."
