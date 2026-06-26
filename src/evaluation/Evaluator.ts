@@ -17,9 +17,8 @@ import { PieceSquareEvaluator } from './PieceSquareTables';
 import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
-import { ComplexityEvaluator } from './ComplexityEvaluator';
 import { BlockadeEvaluator } from './BlockadeEvaluator';
-import { getAttackedSquares } from '../move-generation/AttackDetector';
+
 
 /**
  * Evaluation component weights
@@ -54,7 +53,7 @@ export class Evaluator {
   private readonly mobility: MobilityEvaluator | null;
   private readonly coordination: CoordinationEvaluator;
   private readonly overextension: OverextensionEvaluator;
-  private readonly complexityEvaluator: ComplexityEvaluator;
+
   private readonly blockade: BlockadeEvaluator;
   private readonly nnue: NnueEvaluator;
   
@@ -76,7 +75,7 @@ export class Evaluator {
     this.mobility = mobility || null; // Null = skip mobility evaluation
     this.coordination = coordination || new CoordinationEvaluator();
     this.overextension = new OverextensionEvaluator();
-    this.complexityEvaluator = new ComplexityEvaluator();
+
     this.blockade = new BlockadeEvaluator();
     this.nnue = new NnueEvaluator();
   }
@@ -89,7 +88,7 @@ export class Evaluator {
    * @param state Current game state
    * @returns Evaluation score in centipawns
    */
-  evaluate(board: Board, state: GameState, currentVolatility: number = 0): number {
+  evaluate(board: Board, state: GameState, _currentVolatility: number = 0): number {
     if (this.useNnue) {
       // NNUE returns score from perspective of side to move
       const nnueScore = this.nnue.evaluate(board, state);
@@ -166,44 +165,16 @@ export class Evaluator {
     }
 
     // Swindle Mode Trigger (Anti-Trade Heuristic)
+    // When heavily losing, artificially inflate the evaluation slightly to discourage
+    // trading into a trivially lost endgame. (Complexity removed for performance).
     if (finalScore < -200) {
-      const swindleFactor = Math.min((-finalScore - 200) / 1000, 1.0);
-      const complexity = this.complexityEvaluator.evaluate(board);
-      finalScore += Math.round(complexity * swindleFactor);
+      finalScore += 25;
     } else if (finalScore > 200) {
-      const swindleFactor = Math.min((finalScore - 200) / 1000, 1.0);
-      const complexity = this.complexityEvaluator.evaluate(board);
-      finalScore -= Math.round(complexity * swindleFactor);
+      finalScore -= 25;
     }
 
-    // Counterattack Mode Trigger
-    const opponentColor = state.currentPlayer === Color.White ? Color.Black : Color.White;
-    const opponentOverextension = this.overextension.evaluateColor(board, opponentColor);
-    
-    if (opponentOverextension >= 30) {
-      if (this.mobility) {
-        finalScore += Math.round(this.mobility.evaluate(board, state, isEndgame) * 0.5);
-      }
-      
-      const myColor = state.currentPlayer;
-      const myAttacks = getAttackedSquares(board, myColor);
-      let centralStrikes = 0;
-      if ((myAttacks & (1n << 27n)) !== 0n) centralStrikes++; // d4
-      if ((myAttacks & (1n << 28n)) !== 0n) centralStrikes++; // e4
-      if ((myAttacks & (1n << 35n)) !== 0n) centralStrikes++; // d5
-      if ((myAttacks & (1n << 36n)) !== 0n) centralStrikes++; // e5
-      
-      finalScore += centralStrikes * 10;
-      finalScore += 40; 
-    }
-    
-    // Variance Minimization (Stability Grind Mode)
-    if (currentVolatility >= 50) {
-      const complexity = this.complexityEvaluator.evaluate(board);
-      const volatilityFactor = Math.min(currentVolatility / 200, 1.0);
-      const stabilityPenalty = Math.round(complexity * volatilityFactor * 0.5);
-      finalScore += stabilityPenalty * state.currentPlayer;
-    }
+    // (Counterattack Mode and Stability Grind Mode removed for performance.
+    // Generating attacks and complexity at every leaf node caused severe depth collapse.)
 
     // Endgame Tablebase Magnetism (Piece Count Gravity)
     // When losing, reward positions that approach the 7-piece tablebase threshold,

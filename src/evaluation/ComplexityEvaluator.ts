@@ -1,6 +1,5 @@
 import { Board } from '../core/Board';
 import { Color, PieceType } from '../core/Piece';
-import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 /**
  * Evaluates the "complexity" of a position.
@@ -34,21 +33,8 @@ export class ComplexityEvaluator {
     const pieceCountDiff = Math.abs(whitePieces - blackPieces);
     complexity += pieceCountDiff * 5;
 
-    // 2. Tension (Attacked Pieces)
-    // If many pieces are under attack, the position is tactically sharp.
-    const whiteAttacks = getAttackedSquares(board, Color.White);
-    const blackAttacks = getAttackedSquares(board, Color.Black);
-
-    for (const [square, piece] of board.getAllPieces()) {
-      const isAttackedByWhite = (whiteAttacks & (1n << BigInt(square))) !== 0n;
-      const isAttackedByBlack = (blackAttacks & (1n << BigInt(square))) !== 0n;
-
-      if (piece.color === Color.Black && isAttackedByWhite) {
-        complexity += this.getPieceTensionValue(piece.type);
-      } else if (piece.color === Color.White && isAttackedByBlack) {
-        complexity += this.getPieceTensionValue(piece.type);
-      }
-    }
+    // 2. Tension (Attacked Pieces) - REMOVED FOR PERFORMANCE
+    // Generating attacks in leaf nodes is too expensive. We rely on material and structure.
 
     // 3. Pawn Asymmetry
     // If pawns are scattered across many files, it's more complex than locked chains.
@@ -72,16 +58,7 @@ export class ComplexityEvaluator {
     return complexity;
   }
 
-  private getPieceTensionValue(type: PieceType): number {
-    switch (type) {
-      case PieceType.Queen: return 20; // Hanging queen is extreme tension
-      case PieceType.Rook: return 10;
-      case PieceType.Bishop:
-      case PieceType.Knight: return 8;
-      case PieceType.Pawn: return 3;
-      default: return 0;
-    }
-  }
+
 
   private countBits(n: number): number {
     let count = 0;

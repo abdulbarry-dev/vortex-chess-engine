@@ -7,13 +7,9 @@
 import { Board } from '../core/Board';
 import { Color, PieceType } from '../core/Piece';
 import { getRank } from '../core/Square';
-import { getAttackedSquares, getAttackersOf } from '../move-generation/AttackDetector';
-import { popCount } from '../bitboard/Bitboard';
 
 const OVEREXTENDED_PAWN_PENALTY = -20;
-const BRITTLE_PAWN_PENALTY = -10; // New: pawn storm supported by only 1 piece
 const OVEREXTENDED_PIECE_PENALTY = -15;
-const BRITTLE_PIECE_PENALTY = -8;
 
 export class OverextensionEvaluator {
   /**
@@ -43,25 +39,19 @@ export class OverextensionEvaluator {
    */
   public evaluateColor(board: Board, color: Color): number {
     let penalty = 0;
-    const enemyColor = color === Color.White ? Color.Black : Color.White;
     
-    // Find all attacked squares by the enemy to check if advanced pieces are safe
-    const enemyAttacks = getAttackedSquares(board, enemyColor);
-    const friendlyAttacks = getAttackedSquares(board, color);
-
+    // (Simplified for performance: we no longer use getAttackedSquares or getAttackersOf in leaf nodes)
     for (const [square, piece] of board.getAllPieces()) {
       if (piece.color !== color) continue;
 
       const rank = getRank(square);
       
       // Check if piece is advanced into enemy territory
-      // White is advanced if rank >= 4 (ranks 5,6,7,8). Black if rank <= 3 (ranks 1,2,3,4)
-      const isAdvanced = color === Color.White ? rank >= 4 : rank <= 3;
+      // White is advanced if rank >= 5 (ranks 6,7,8). Black if rank <= 2 (ranks 1,2,3)
+      // Note: Ranks are 0-indexed (0-7).
+      const isAdvanced = color === Color.White ? rank >= 5 : rank <= 2;
       
       if (!isAdvanced) continue;
-
-      const isAttackedByEnemy = (enemyAttacks & (1n << BigInt(square))) !== 0n;
-      const isDefendedByUs = (friendlyAttacks & (1n << BigInt(square))) !== 0n;
 
       if (piece.type === PieceType.Pawn) {
         // Flank pawns (a, b, g, h files) pushed aggressively are highly brittle
@@ -69,29 +59,11 @@ export class OverextensionEvaluator {
         const isFlank = file < 2 || file > 5;
         const multiplier = isFlank ? 1.5 : 1.0;
 
-        // Advanced pawn without friendly pawn/piece support
-        if (!isDefendedByUs) {
-          penalty += Math.round(Math.abs(OVEREXTENDED_PAWN_PENALTY) * multiplier);
-        } else {
-          // Brittleness Detection: Check if the advanced pawn storm is brittle (supported by exactly 1 piece)
-          const defenders = getAttackersOf(board, square, color);
-          if (popCount(defenders) === 1) {
-            penalty += Math.round(Math.abs(BRITTLE_PAWN_PENALTY) * multiplier);
-          }
-        }
+        // Simply penalize very advanced pawns (they might be strong, but this is a defensive engine)
+        penalty += Math.round(Math.abs(OVEREXTENDED_PAWN_PENALTY) * multiplier);
       } else if (piece.type !== PieceType.King) {
-        // Advanced piece that is attacked by the enemy
-        if (isAttackedByEnemy) {
-          if (!isDefendedByUs) {
-            penalty += Math.abs(OVEREXTENDED_PIECE_PENALTY);
-          } else {
-            // Brittleness Evaluation for pieces
-            const defenders = getAttackersOf(board, square, color);
-            if (popCount(defenders) === 1) {
-              penalty += Math.abs(BRITTLE_PIECE_PENALTY);
-            }
-          }
-        }
+        // Penalize very advanced pieces
+        penalty += Math.abs(OVEREXTENDED_PIECE_PENALTY);
       }
     }
 
