@@ -16,6 +16,7 @@ import { PawnStructureEvaluator } from './PawnStructureEvaluator';
 import { PieceSquareEvaluator } from './PieceSquareTables';
 import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
+import { OverextensionEvaluator } from './OverextensionEvaluator';
 
 /**
  * Evaluation component weights
@@ -28,6 +29,7 @@ export const EVALUATION_WEIGHTS = {
   KING_SAFETY: 1.5,        // King safety (critical in middlegame)
   MOBILITY: 0.1,           // Piece mobility (subtle influence)
   COORDINATION: 0.3,       // Defensive piece clustering
+  OVEREXTENSION: 1.2,      // Penalize opponent for unsupported aggression
 };
 
 /**
@@ -47,6 +49,7 @@ export class Evaluator {
   private readonly kingSafety: KingSafetyEvaluator;
   private readonly mobility: MobilityEvaluator | null;
   private readonly coordination: CoordinationEvaluator;
+  private readonly overextension: OverextensionEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -66,6 +69,7 @@ export class Evaluator {
     this.kingSafety = kingSafety || new KingSafetyEvaluator();
     this.mobility = mobility || null; // Null = skip mobility evaluation
     this.coordination = coordination || new CoordinationEvaluator();
+    this.overextension = new OverextensionEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -127,6 +131,12 @@ export class Evaluator {
       score += this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
     }
 
+    let overextensionScore = 0;
+    if (EVALUATION_WEIGHTS.OVEREXTENSION > 0) {
+      overextensionScore = this.overextension.evaluate(board) * EVALUATION_WEIGHTS.OVEREXTENSION;
+      score += overextensionScore;
+    }
+
     let finalScore = Math.round(score);
 
     // Fortress Mode Trigger
@@ -149,6 +159,22 @@ export class Evaluator {
       const swindleFactor = Math.min((finalScore - 200) / 1000, 1.0);
       const complexity = this.getComplexityScore(board);
       finalScore -= Math.round(complexity * swindleFactor);
+    }
+
+    // Counterattack Mode Trigger
+    // If the opponent is significantly overextended, shift engine behavior by rewarding piece mobility 
+    // and tactical complexity, effectively launching a counterattack against the vulnerable targets.
+    const opponentColor = state.currentPlayer === Color.White ? Color.Black : Color.White;
+    const opponentOverextension = this.overextension.evaluateColor(board, opponentColor);
+    
+    // Threshold for triggering counterattack
+    if (opponentOverextension >= 30) {
+      // Reward piece mobility heavily to exploit weaknesses
+      if (this.mobility) {
+        finalScore += Math.round(this.mobility.evaluate(board, state, isEndgame) * 0.5);
+      }
+      // Add a raw initiative bonus for counterattacking
+      finalScore += 40; 
     }
 
     return finalScore;
