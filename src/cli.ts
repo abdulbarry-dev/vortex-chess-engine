@@ -17,6 +17,8 @@ import { SearchEngine } from './search/SearchEngine';
 import { Move } from './types/Move.types';
 import { MoveExecutor } from './core/MoveExecutor';
 import { parseFen } from './utils/FenParser';
+import { OpeningBook } from './opening/OpeningBook';
+import { ZobristHasher } from './search/ZobristHashing';
 
 /**
  * UCI Protocol Implementation
@@ -27,6 +29,8 @@ class UciInterface {
   private generator: MoveGenerator;
   private evaluator: Evaluator;
   private search: SearchEngine;
+  private openingBook: OpeningBook;
+  private zobrist: ZobristHasher;
   private isSearching: boolean = false;
 
   constructor() {
@@ -35,6 +39,8 @@ class UciInterface {
     this.generator = new MoveGenerator();
     this.evaluator = new Evaluator();
     this.search = new SearchEngine(this.evaluator, this.generator);
+    this.zobrist = new ZobristHasher();
+    this.openingBook = new OpeningBook(this.zobrist);
     
     // Initialize to starting position
     this.newGame();
@@ -338,6 +344,17 @@ class UciInterface {
     // Perform search asynchronously
     setImmediate(() => {
       try {
+        if (this.openingBook.isEnabled()) {
+          const bookMove = this.openingBook.probe(this.board, this.state);
+          if (bookMove) {
+            const moveStr = this.moveToUci(bookMove);
+            this.send(`info string book move`);
+            this.send(`bestmove ${moveStr}`);
+            this.isSearching = false;
+            return;
+          }
+        }
+        
         const result = this.search.findBestMove(this.board, this.state, depth, timeLimitMs);
         
         // Validate that we have a legal move
