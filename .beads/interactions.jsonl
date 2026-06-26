@@ -17,3 +17,4 @@
 {"id":"int-faf44aab","kind":"field_change","created_at":"2026-06-26T11:06:09.443200066Z","actor":"abdulbarry-dev","issue_id":"vortex-chess-engine-aun","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-39e64484","kind":"field_change","created_at":"2026-06-26T11:08:54.854383246Z","actor":"abdulbarry-dev","issue_id":"vortex-chess-engine-v8u","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-247f6057","kind":"field_change","created_at":"2026-06-26T11:09:56.813918376Z","actor":"abdulbarry-dev","issue_id":"vortex-chess-engine-7u6","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-dc5213cf","kind":"field_change","created_at":"2026-06-26T11:11:53.482396413Z","actor":"abdulbarry-dev","issue_id":"vortex-chess-engine-xgc","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}

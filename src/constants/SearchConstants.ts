@@ -34,6 +34,7 @@ export const TT_BETA = 2;
  */
 export const MVV_LVA_OFFSET = 10000;
 export const KILLER_MOVE_SCORE = 9000;
+export const PROPHYLACTIC_MOVE_SCORE = 15000;
 export const HASH_MOVE_SCORE = 20000;
 export const PROMOTION_SCORE = 8000;
 export const CASTLING_SCORE = 100;

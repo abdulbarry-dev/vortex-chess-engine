@@ -253,7 +253,7 @@ export class AlphaBetaSearch {
       }
     }
 
-    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply);
+    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply, threatMove);
 
     let bestScore = -Infinity;
     let bestMove: Move | null = null;
@@ -487,7 +487,7 @@ export class AlphaBetaSearch {
       }
     }
 
-    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply, true);
+    const movePicker = new MovePicker(board, state, this.moveGenerator, this.moveOrderer, hashMove, ply, null, true);
     
     let move = movePicker.nextMove();
     let bestScore = alpha;

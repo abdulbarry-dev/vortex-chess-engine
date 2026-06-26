@@ -13,6 +13,7 @@ import {
   KILLER_MOVE_SCORE,
   MVV_LVA_OFFSET,
   PROMOTION_SCORE,
+  PROPHYLACTIC_MOVE_SCORE,
 } from '../constants/SearchConstants';
 import { staticExchangeEvaluation } from './StaticExchangeEvaluation';
 import { Board } from '../core/Board';
@@ -59,12 +60,13 @@ export class MoveOrderer {
     moves: Move[],
     board: Board,
     hashMove: Move | null = null,
-    ply: number = 0
+    ply: number = 0,
+    threatMove: Move | null = null
   ): Move[] {
     // Score each move
     const scoredMoves = moves.map(move => ({
       move,
-      score: this.scoreMove(move, board, hashMove, ply),
+      score: this.scoreMove(move, board, hashMove, ply, threatMove),
     }));
 
     // Sort by score (descending)
@@ -81,11 +83,17 @@ export class MoveOrderer {
     move: Move,
     board: Board,
     hashMove: Move | null,
-    ply: number
+    ply: number,
+    threatMove: Move | null
   ): number {
     // 1. Hash move (from TT) - highest priority
     if (hashMove && this.movesEqual(move, hashMove)) {
       return HASH_MOVE_SCORE;
+    }
+
+    // 1.5 Prophylactic moves
+    if (threatMove && (move.to === threatMove.to || move.to === threatMove.from || move.captured !== undefined)) {
+      return PROPHYLACTIC_MOVE_SCORE;
     }
 
     // 2. Captures - SEE + MVV-LVA

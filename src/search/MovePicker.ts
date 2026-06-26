@@ -34,6 +34,7 @@ export class MovePicker {
     private moveOrderer: MoveOrderer,
     private hashMove: Move | null,
     private ply: number,
+    private threatMove: Move | null = null,
     private qSearch: boolean = false
   ) {
     if (this.hashMove && this.qSearch === false) { // We skip hash moves in qSearch for now
@@ -71,7 +72,7 @@ export class MovePicker {
           }
           
           // Order good captures using MoveOrderer
-          this.captures = this.moveOrderer.orderMoves(this.captures, this.board, null, this.ply);
+          this.captures = this.moveOrderer.orderMoves(this.captures, this.board, null, this.ply, this.threatMove);
           
           this.index = 0;
           this.stage = MovePickerStage.Captures;
@@ -103,7 +104,7 @@ export class MovePicker {
           }
 
           // Order quiets
-          this.quiets = this.moveOrderer.orderMoves(this.quiets, this.board, null, this.ply);
+          this.quiets = this.moveOrderer.orderMoves(this.quiets, this.board, null, this.ply, this.threatMove);
           
           this.index = 0;
           this.stage = MovePickerStage.Quiets;
