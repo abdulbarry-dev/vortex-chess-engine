@@ -46,3 +46,21 @@ squashfs-root/
 error.log
 run_vortex.sh
 match_*.pgn
+
+# Python
+venv/
+
+# Stockfish and external tools
+stockfish/
+stockfish.tar
+bin/
+play_match.py
+
+# Debug scripts
+*debug*.ts
+test_eval.ts
+
+# Misc tool folders
+.claude/
+.opencode/
+.beads/

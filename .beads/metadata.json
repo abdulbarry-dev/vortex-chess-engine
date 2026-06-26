@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "vortex_chess_engine",
-  "project_id": "2ab5e00f-ee24-4291-b144-7fdd41b531c7"
-}
