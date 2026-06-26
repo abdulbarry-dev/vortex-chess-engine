@@ -38,6 +38,7 @@ export class AlphaBetaSearch {
   private startTime: number = 0;
   private timeLimitMs: number = Infinity;
   private stopped: boolean = false;
+  private currentVolatility: number = 0;
 
   constructor(
     evaluator: Evaluator,
@@ -58,6 +59,10 @@ export class AlphaBetaSearch {
   setTranspositionTable(tt: TranspositionTable, hasher: ZobristHasher) {
     this.transpositionTable = tt;
     this.zobristHasher = hasher;
+  }
+
+  setVolatility(volatility: number) {
+    this.currentVolatility = volatility;
   }
 
   /**
@@ -181,7 +186,7 @@ export class AlphaBetaSearch {
 
     // Check maximum depth
     if (ply >= MAX_SEARCH_DEPTH) {
-      return this.evaluator.evaluate(board, state) * state.currentPlayer;
+      return this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
     }
 
     // Transposition Table Probe
@@ -234,7 +239,7 @@ export class AlphaBetaSearch {
       
       // Explicit Threat Forecasting: Only consider it a threat if the score drops massively
       if (threatMove !== null) {
-        const staticEval = this.evaluator.evaluate(board, state) * state.currentPlayer;
+        const staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
         if (staticEval - nullScore < 200) {
           // The threat is not severe enough to warrant expensive prophylactic extensions
           threatMove = null; 
@@ -255,7 +260,7 @@ export class AlphaBetaSearch {
     const inCheck = isInCheck(board, state.currentPlayer);
     
     if (depth <= 3 && !inCheck && Math.abs(alpha) < CHECKMATE_SCORE - 100) {
-      const staticEval = this.evaluator.evaluate(board, state) * state.currentPlayer;
+      const staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
       futilityMargin = depth * 200; // 200, 400, 600 margin depending on depth
       
       if (staticEval + futilityMargin <= alpha) {
@@ -475,11 +480,11 @@ export class AlphaBetaSearch {
     
     // Check limits
     if (this.shouldStop() || ply >= MAX_SEARCH_DEPTH) {
-      return this.evaluator.evaluate(board, state) * state.currentPlayer;
+      return this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
     }
     
     // Stand pat score
-    const standPat = this.evaluator.evaluate(board, state) * state.currentPlayer;
+    const standPat = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
     if (standPat >= beta) {
       return beta; // Fail-hard beta cutoff
     }

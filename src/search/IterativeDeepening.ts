@@ -66,6 +66,8 @@ export class IterativeDeepeningSearch {
 
     let bestMove: Move | null = null;
     let bestScore = 0;
+    let previousScore = 0;
+    let volatility = 0;
     let depth = 0;
     let totalNodes = 0;
     const pv: Move[] = [];
@@ -153,7 +155,17 @@ export class IterativeDeepeningSearch {
 
       // Update best move (only if we didn't time out during fail-high/low resolution)
       bestMove = result.move;
+      
+      // Calculate depth-delta tracking (Volatility)
+      if (depth > 1) {
+        const delta = Math.abs(result.score - previousScore);
+        volatility = (volatility + delta) / 2; // Running average
+      }
+      previousScore = result.score;
       bestScore = result.score;
+      
+      // Pass volatility to alpha-beta for subsequent depths
+      this.alphaBeta.setVolatility(volatility);
 
       // Get stats
       const stats = this.alphaBeta.getStats();

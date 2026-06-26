@@ -85,7 +85,7 @@ export class Evaluator {
    * @param state Current game state
    * @returns Evaluation score in centipawns
    */
-  evaluate(board: Board, state: GameState): number {
+  evaluate(board: Board, state: GameState, currentVolatility: number = 0): number {
     if (this.useNnue) {
       // NNUE returns score from perspective of side to move
       const nnueScore = this.nnue.evaluate(board, state);
@@ -144,24 +144,17 @@ export class Evaluator {
     let finalScore = Math.round(score);
 
     // Kramnik's Berlin Heuristic
-    // If it's a "queenless middlegame" (queens are off, but total material is still high),
-    // give Black a defensive bonus for neutralizing White's attacking initiative early.
     if (queenCount === 0 && totalMaterial >= ENDGAME_MATERIAL_THRESHOLD) {
-      finalScore -= 30; // Bonus for Black (score is from White's perspective)
+      finalScore -= 30; // Bonus for Black
     }
 
     // Fortress Mode Trigger
-    // If the evaluation strongly favors one side, check for fortress conditions.
-    // A fortress scales the evaluation down towards 0 (a draw).
     if (Math.abs(finalScore) > 200) {
       const fortressFactor = this.calculateFortressFactor(board, isEndgame);
       finalScore = Math.round(finalScore * fortressFactor);
     }
 
     // Swindle Mode Trigger (Anti-Trade Heuristic)
-    // When a side is losing heavily, we add a complexity bonus. This heavily penalizes
-    // trading pieces (which lowers complexity) for the losing side, while encouraging
-    // the winning side to force trades to remove this bonus.
     if (finalScore < -200) {
       const swindleFactor = Math.min((-finalScore - 200) / 1000, 1.0);
       const complexity = this.complexityEvaluator.evaluate(board);
@@ -173,19 +166,14 @@ export class Evaluator {
     }
 
     // Counterattack Mode Trigger
-    // If the opponent is significantly overextended, shift engine behavior by rewarding piece mobility 
-    // and tactical complexity, effectively launching a counterattack against the vulnerable targets.
     const opponentColor = state.currentPlayer === Color.White ? Color.Black : Color.White;
     const opponentOverextension = this.overextension.evaluateColor(board, opponentColor);
     
-    // Threshold for triggering counterattack
     if (opponentOverextension >= 30) {
-      // Reward piece mobility heavily to exploit weaknesses
       if (this.mobility) {
         finalScore += Math.round(this.mobility.evaluate(board, state, isEndgame) * 0.5);
       }
       
-      // Central Strikes: Value central control when the opponent has overextended on the flanks
       const myColor = state.currentPlayer;
       const myAttacks = getAttackedSquares(board, myColor);
       let centralStrikes = 0;
@@ -195,9 +183,19 @@ export class Evaluator {
       if ((myAttacks & (1n << 36n)) !== 0n) centralStrikes++; // e5
       
       finalScore += centralStrikes * 10;
-      
-      // Add a raw initiative bonus for counterattacking
       finalScore += 40; 
+    }
+    
+    // Variance Minimization (Stability Grind Mode)
+    // If the evaluation is highly volatile across depths (score swings > 50cp),
+    // penalize complexity for the side that just moved to steer the search toward stability.
+    if (currentVolatility >= 50) {
+      const complexity = this.complexityEvaluator.evaluate(board);
+      const volatilityFactor = Math.min(currentVolatility / 200, 1.0);
+      const stabilityPenalty = Math.round(complexity * volatilityFactor * 0.5); // 50% weight
+      
+      // Penalize the side who just moved (state.currentPlayer is the side to move next)
+      finalScore += stabilityPenalty * state.currentPlayer;
     }
 
     return finalScore;
