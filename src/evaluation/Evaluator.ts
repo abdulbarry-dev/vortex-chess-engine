@@ -17,6 +17,7 @@ import { PieceSquareEvaluator } from './PieceSquareTables';
 import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
+import { ComplexityEvaluator } from './ComplexityEvaluator';
 import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 /**
@@ -51,6 +52,7 @@ export class Evaluator {
   private readonly mobility: MobilityEvaluator | null;
   private readonly coordination: CoordinationEvaluator;
   private readonly overextension: OverextensionEvaluator;
+  private readonly complexityEvaluator: ComplexityEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -71,6 +73,7 @@ export class Evaluator {
     this.mobility = mobility || null; // Null = skip mobility evaluation
     this.coordination = coordination || new CoordinationEvaluator();
     this.overextension = new OverextensionEvaluator();
+    this.complexityEvaluator = new ComplexityEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -161,11 +164,11 @@ export class Evaluator {
     // the winning side to force trades to remove this bonus.
     if (finalScore < -200) {
       const swindleFactor = Math.min((-finalScore - 200) / 1000, 1.0);
-      const complexity = this.getComplexityScore(board);
+      const complexity = this.complexityEvaluator.evaluate(board);
       finalScore += Math.round(complexity * swindleFactor);
     } else if (finalScore > 200) {
       const swindleFactor = Math.min((finalScore - 200) / 1000, 1.0);
-      const complexity = this.getComplexityScore(board);
+      const complexity = this.complexityEvaluator.evaluate(board);
       finalScore -= Math.round(complexity * swindleFactor);
     }
 
@@ -316,28 +319,6 @@ export class Evaluator {
     return factor;
   }
 
-  /**
-   * Calculate complexity score to encourage keeping pieces on board when losing (Swindle Mode).
-   * This score is added to the losing side's evaluation.
-   */
-  private getComplexityScore(board: Board): number {
-    let complexity = 0;
-    
-    // Reward having pieces on the board (Queens are most complex)
-    for (const [_square, piece] of board.getAllPieces()) {
-      if (piece.type === PieceType.Queen) {
-        complexity += 50;
-      } else if (piece.type === PieceType.Rook) {
-        complexity += 15;
-      } else if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
-        complexity += 10;
-      } else if (piece.type === PieceType.Pawn) {
-        complexity += 2;
-      }
-    }
-    
-    return complexity;
-  }
 
   /**
    * Get evaluation components breakdown
