@@ -5,6 +5,9 @@
 
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
+import { Move } from '../types/Move.types';
+import { TranspositionTable } from './TranspositionTable';
+import { ZobristHasher } from './ZobristHashing';
 
 /**
  * Configuration for Null Move Pruning.
@@ -279,5 +282,29 @@ export class NullMovePruning {
    */
   getConfig(): Readonly<NullMoveConfig> {
     return { ...this.config };
+  }
+
+  /**
+   * Extract threat move from Transposition Table
+   * after a null move search failed to produce a cutoff.
+   * 
+   * @param board Board state AFTER the null move (opponent's turn)
+   * @param state Game state AFTER the null move (opponent's turn)
+   * @param tt Transposition table
+   * @param hasher Zobrist hasher
+   * @returns The threat move, or null if not found
+   */
+  extractThreat(
+    board: Board,
+    state: GameState,
+    tt: TranspositionTable,
+    hasher: ZobristHasher
+  ): Move | null {
+    const hash = hasher.computeHash(board, state);
+    const entry = tt.probe(hash);
+    if (entry && entry.bestMove) {
+      return entry.bestMove;
+    }
+    return null;
   }
 }

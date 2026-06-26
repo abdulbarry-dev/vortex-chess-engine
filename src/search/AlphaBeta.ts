@@ -17,6 +17,7 @@ import { MovePicker } from './MovePicker';
 import { MoveOrderer } from './MoveOrdering';
 import { TranspositionTable } from './TranspositionTable';
 import { ZobristHasher } from './ZobristHashing';
+import { NullMovePruning } from './NullMovePruning';
 
 /**
  * Alpha-beta pruning search with negamax
@@ -30,6 +31,7 @@ export class AlphaBetaSearch {
   private readonly moveOrderer: MoveOrderer;
   private transpositionTable: TranspositionTable | null;
   private zobristHasher: ZobristHasher | null;
+  private readonly nullMovePruning: NullMovePruning;
   private stats: SearchStats;
   private startTime: number = 0;
   private timeLimitMs: number = Infinity;
@@ -47,6 +49,7 @@ export class AlphaBetaSearch {
     this.moveOrderer = moveOrderer;
     this.transpositionTable = transpositionTable;
     this.zobristHasher = zobristHasher;
+    this.nullMovePruning = new NullMovePruning();
     this.stats = this.createEmptyStats();
   }
 
@@ -202,15 +205,26 @@ export class AlphaBetaSearch {
 
     // Null Move Pruning (NMP)
     // If we can pass (do nothing) and still cause beta cutoff, position is too good
-    const canDoNullMove = depth >= 3 && !isInCheck(board, state.currentPlayer) && ply > 0;
+    let threatMove: Move | null = null;
+    const canDoNullMove = this.nullMovePruning.shouldTryNullMove(board, state, depth, beta, isInCheck(board, state.currentPlayer), false);
+    
     if (canDoNullMove) {
+      this.nullMovePruning.recordAttempt();
+      
       // Make null move (just switch turns and clear ep)
       const epSquare = state.enPassantSquare;
       state.enPassantSquare = null;
       state.switchTurn();
       
-      // Search with reduced depth (R=2)
-      const nullScore = -this.search(board, state, depth - 3, -beta, -beta + 1, ply + 1);
+      const reduction = this.nullMovePruning.getReduction(depth);
+      
+      // Search with reduced depth
+      const nullScore = -this.search(board, state, depth - 1 - reduction, -beta, -beta + 1, ply + 1);
+      
+      // Extract threat move BEFORE unmaking null move so hash is correct
+      if (nullScore < beta && this.transpositionTable && this.zobristHasher) {
+        threatMove = this.nullMovePruning.extractThreat(board, state, this.transpositionTable, this.zobristHasher);
+      }
       
       // Unmake null move
       state.switchTurn();
@@ -218,6 +232,7 @@ export class AlphaBetaSearch {
       
       // If null move causes cutoff, prune this branch
       if (nullScore >= beta) {
+        this.nullMovePruning.recordCutoff();
         return beta; // Fail-high
       }
     }
@@ -260,6 +275,19 @@ export class AlphaBetaSearch {
       legalMovesFound++;
       moveCount++;
       
+      // Check if move is prophylactic
+      // Disrupts threat if it moves to threat's start/end square, or captures a piece
+      const isProphylactic = threatMove !== null && (
+        move.to === threatMove.to || 
+        move.to === threatMove.from || 
+        move.captured !== undefined
+      );
+      
+      let extension = 0;
+      if (isProphylactic && depth < MAX_SEARCH_DEPTH - 1) {
+        extension = 1; // Prophylactic Extension
+      }
+      
       // Make move in place
       const history = MoveExecutor.makeMove(board, state, move);
 
@@ -272,20 +300,21 @@ export class AlphaBetaSearch {
         moveCount > 4 &&
         !move.captured &&
         !move.promotion &&
-        !isInCheck(board, state.currentPlayer);
+        !isInCheck(board, state.currentPlayer) &&
+        !isProphylactic; // Do not reduce prophylactic moves
 
       if (canReduceDepth) {
         // Search with reduced depth first
         const reduction = moveCount > 8 ? 2 : 1;
-        score = -this.search(board, state, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1);
+        score = -this.search(board, state, depth - 1 + extension - reduction, -alpha - 1, -alpha, ply + 1);
         
         // If reduced search failed high, re-search at full depth
         if (score > alpha) {
-          score = -this.search(board, state, depth - 1, -beta, -alpha, ply + 1);
+          score = -this.search(board, state, depth - 1 + extension, -beta, -alpha, ply + 1);
         }
       } else {
         // Normal search at full depth
-        score = -this.search(board, state, depth - 1, -beta, -alpha, ply + 1);
+        score = -this.search(board, state, depth - 1 + extension, -beta, -alpha, ply + 1);
       }
 
       // Unmake move in place
