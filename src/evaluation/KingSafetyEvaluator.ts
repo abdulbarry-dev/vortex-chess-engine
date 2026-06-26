@@ -6,6 +6,7 @@
 import { Board } from '../core/Board';
 import { Color, PieceType } from '../core/Piece';
 import { Square, getFile, getRank } from '../core/Square';
+import { getAttackersOf } from '../move-generation/AttackDetector';
 
 /**
  * King safety scoring
@@ -16,7 +17,7 @@ const SEMI_OPEN_FILE_NEAR_KING_PENALTY = -10; // Per semi-open file near king
 
 /**
  * Evaluates king safety
- * Focuses on pawn shield and open files near king
+ * Focuses on pawn shield, open files, and Threat Heatmaps near the king.
  */
 export class KingSafetyEvaluator {
   /**
@@ -59,6 +60,9 @@ export class KingSafetyEvaluator {
 
     // Evaluate open files near king
     score += this.evaluateOpenFiles(board, kingSquare, color);
+    
+    // Evaluate Threat Heatmap in the King Zone
+    score += this.evaluateThreatHeatmap(board, kingSquare, color);
 
     return score;
   }
@@ -191,5 +195,63 @@ export class KingSafetyEvaluator {
     if (!hasFriendlyPawn && !hasEnemyPawn) return 'open';
     if (!hasFriendlyPawn && hasEnemyPawn) return 'semi-open';
     return 'closed';
+  }
+
+  /**
+   * Generates a Threat Heatmap around the King Zone (3x3 grid).
+   * Penalizes the position if high-heat squares are near the king,
+   * especially if our own pieces are standing on them (Preemptive Retreats logic).
+   */
+  private evaluateThreatHeatmap(board: Board, kingSquare: Square, color: Color): number {
+    let penalty = 0;
+    const enemyColor = color === Color.White ? Color.Black : Color.White;
+    
+    const kingFile = getFile(kingSquare);
+    const kingRank = getRank(kingSquare);
+    
+    // Check the 3x3 grid around the king
+    for (let f = Math.max(0, kingFile - 1); f <= Math.min(7, kingFile + 1); f++) {
+      for (let r = Math.max(0, kingRank - 1); r <= Math.min(7, kingRank + 1); r++) {
+        const sq = r * 8 + f;
+        
+        // Count attackers and defenders
+        const attackersBB = getAttackersOf(board, sq, enemyColor);
+        const defendersBB = getAttackersOf(board, sq, color);
+        
+        // Count bits to get number of attacking/defending pieces
+        let attackersCount = 0;
+        let bb = attackersBB;
+        while(bb) { attackersCount++; bb &= bb - 1n; }
+        
+        let defendersCount = 0;
+        let bb2 = defendersBB;
+        while(bb2) { defendersCount++; bb2 &= bb2 - 1n; }
+        
+        // Heat calculation
+        if (attackersCount > 0) {
+          let heat = attackersCount * 15;
+          heat -= defendersCount * 5; // Defenders mitigate heat, but attackers have initiative
+          
+          if (heat > 0) {
+            const piece = board.getPiece(sq);
+            if (piece) {
+               if (piece.color === color && piece.type !== PieceType.King) {
+                   // One of our pieces is on a high heat square near the king!
+                   // This is a massive liability. The engine will actively want to retreat it!
+                   penalty += heat * 2;
+               } else if (piece.color === enemyColor) {
+                   // Enemy piece already infiltrated the King Zone!
+                   penalty += heat * 3;
+               }
+            } else {
+               // Empty square near king is controlled by enemy (high heat)
+               penalty += heat;
+            }
+          }
+        }
+      }
+    }
+    
+    return -penalty; // Return as a negative score since it's a penalty
   }
 }
