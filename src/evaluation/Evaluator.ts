@@ -15,6 +15,7 @@ import { MobilityEvaluator } from './MobilityEvaluator';
 import { PawnStructureEvaluator } from './PawnStructureEvaluator';
 import { PieceSquareEvaluator } from './PieceSquareTables';
 import { NnueEvaluator } from '../nnue/NnueEvaluator';
+import { CoordinationEvaluator } from './CoordinationEvaluator';
 
 /**
  * Evaluation component weights
@@ -26,6 +27,7 @@ export const EVALUATION_WEIGHTS = {
   PAWN_STRUCTURE: 0.5,     // Pawn structure
   KING_SAFETY: 1.5,        // King safety (critical in middlegame)
   MOBILITY: 0.1,           // Piece mobility (subtle influence)
+  COORDINATION: 0.3,       // Defensive piece clustering
 };
 
 /**
@@ -44,6 +46,7 @@ export class Evaluator {
   private readonly pawnStructure: PawnStructureEvaluator;
   private readonly kingSafety: KingSafetyEvaluator;
   private readonly mobility: MobilityEvaluator | null;
+  private readonly coordination: CoordinationEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -54,13 +57,15 @@ export class Evaluator {
     pieceSquare?: PieceSquareEvaluator,
     pawnStructure?: PawnStructureEvaluator,
     kingSafety?: KingSafetyEvaluator,
-    mobility?: MobilityEvaluator | null
+    mobility?: MobilityEvaluator | null,
+    coordination?: CoordinationEvaluator
   ) {
     this.material = material || new MaterialEvaluator();
     this.pieceSquare = pieceSquare || new PieceSquareEvaluator();
     this.pawnStructure = pawnStructure || new PawnStructureEvaluator();
     this.kingSafety = kingSafety || new KingSafetyEvaluator();
     this.mobility = mobility || null; // Null = skip mobility evaluation
+    this.coordination = coordination || new CoordinationEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -111,6 +116,10 @@ export class Evaluator {
 
     if (EVALUATION_WEIGHTS.KING_SAFETY > 0) {
       score += this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
+    }
+
+    if (EVALUATION_WEIGHTS.COORDINATION > 0) {
+      score += this.coordination.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.COORDINATION;
     }
 
     // Mobility is expensive, only calculate if needed
@@ -164,6 +173,7 @@ export class Evaluator {
     pawnStructure: number;
     kingSafety: number;
     mobility: number;
+    coordination: number;
     total: number;
   } {
     const isEndgame = this.isEndgame(board);
@@ -172,6 +182,7 @@ export class Evaluator {
     const pieceSquare = this.pieceSquare.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PIECE_SQUARE;
     const pawnStructure = this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
     const kingSafety = this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
+    const coordination = this.coordination.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.COORDINATION;
     const mobility = this.mobility ? this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY : 0;
 
     return {
@@ -180,7 +191,8 @@ export class Evaluator {
       pawnStructure,
       kingSafety,
       mobility,
-      total: Math.round(material + pieceSquare + pawnStructure + kingSafety + mobility),
+      coordination,
+      total: Math.round(material + pieceSquare + pawnStructure + kingSafety + coordination + mobility),
     };
   }
 }
