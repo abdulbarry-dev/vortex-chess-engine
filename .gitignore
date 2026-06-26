@@ -30,7 +30,6 @@ Thumbs.db
 coverage/
 package-lock.json
 .github/
-docs/
 # Test output files
 *.pgn
 

@@ -18,6 +18,7 @@ import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
 import { ComplexityEvaluator } from './ComplexityEvaluator';
+import { BlockadeEvaluator } from './BlockadeEvaluator';
 import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 /**
@@ -32,6 +33,7 @@ export const EVALUATION_WEIGHTS = {
   MOBILITY: 0.1,           // Piece mobility (subtle influence)
   COORDINATION: 0.3,       // Defensive piece clustering
   OVEREXTENSION: 1.2,      // Penalize opponent for unsupported aggression
+  BLOCKADE: 1.0,           // Pawn structure gridlocking (closed/locked positions)
 };
 
 /**
@@ -53,6 +55,7 @@ export class Evaluator {
   private readonly coordination: CoordinationEvaluator;
   private readonly overextension: OverextensionEvaluator;
   private readonly complexityEvaluator: ComplexityEvaluator;
+  private readonly blockade: BlockadeEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -74,6 +77,7 @@ export class Evaluator {
     this.coordination = coordination || new CoordinationEvaluator();
     this.overextension = new OverextensionEvaluator();
     this.complexityEvaluator = new ComplexityEvaluator();
+    this.blockade = new BlockadeEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -139,6 +143,13 @@ export class Evaluator {
     if (EVALUATION_WEIGHTS.OVEREXTENSION > 0) {
       overextensionScore = this.overextension.evaluate(board) * EVALUATION_WEIGHTS.OVEREXTENSION;
       score += overextensionScore;
+    }
+
+    // Pawn Structure Gridlocking (Blockade Evaluator)
+    // Rewards locked pawn structures that extend game length and reduce the opponent's
+    // attacking options. Core to Vortex's long defensive game strategy.
+    if (EVALUATION_WEIGHTS.BLOCKADE > 0 && !isEndgame) {
+      score += this.blockade.evaluate(board) * EVALUATION_WEIGHTS.BLOCKADE;
     }
 
     let finalScore = Math.round(score);
