@@ -205,6 +205,12 @@ export class Evaluator {
       finalScore += stabilityPenalty * state.currentPlayer;
     }
 
+    // Snake Protocol: Piece Simplification Bonus
+    // When losing, reward positions where the total non-pawn piece count is low.
+    // Each piece traded off the board reduces the opponent's attacking resources
+    // and brings the game closer to a drawable endgame configuration.
+    finalScore += this.calculateSimplificationBonus(board, finalScore);
+
     // 50-Move Rule Gravity (Draw by Attrition)
     // When losing, reward positions with a high halfmoveClock to incentivise
     // piece shuffles over pawn pushes or captures, running down the draw clock.
@@ -238,6 +244,50 @@ export class Evaluator {
       return bonus;
     } else if (finalScore > 100) {
       // Black is losing — lower White's score toward 0 to reward Black's non-resetting moves
+      return -bonus;
+    }
+
+    return 0;
+  }
+
+  /**
+   * Calculate the Piece Simplification Bonus (Snake Protocol).
+   *
+   * When losing, reward positions where the total non-pawn, non-king piece count
+   * is low. Each piece traded off the board reduces the opponent's attacking
+   * resources. The bonus accumulates as the board simplifies, steering the engine
+   * to actively seek piece exchanges when in a losing position.
+   *
+   * Starting piece count (both sides combined): 14 non-pawn, non-king pieces.
+   * Bonus formula: (14 - currentCount) * BONUS_PER_PIECE centipawns.
+   *
+   * @param board      - Current board state
+   * @param finalScore - Current evaluation score (White's perspective)
+   * @returns Bonus in centipawns (positive helps White, negative helps Black)
+   */
+  private calculateSimplificationBonus(board: Board, finalScore: number): number {
+    if (Math.abs(finalScore) < 100) return 0; // Near-equal — no forced simplification needed
+
+    const BONUS_PER_PIECE = 8;        // cp bonus per piece already traded off
+    const STARTING_PIECE_COUNT = 14;  // 7 non-pawn non-king pieces per side at game start
+
+    let currentPieceCount = 0;
+    for (const [_sq, piece] of board.getAllPieces()) {
+      if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
+        currentPieceCount++;
+      }
+    }
+
+    const piecesTraded = STARTING_PIECE_COUNT - currentPieceCount;
+    if (piecesTraded <= 0) return 0;
+
+    const bonus = piecesTraded * BONUS_PER_PIECE;
+
+    if (finalScore < -100) {
+      // White is losing — reward White for having simplified the position
+      return bonus;
+    } else if (finalScore > 100) {
+      // Black is losing — reward Black for having simplified (lower White's score)
       return -bonus;
     }
 

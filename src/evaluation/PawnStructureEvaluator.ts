@@ -33,6 +33,12 @@ export class PawnStructureEvaluator {
     score += this.evaluateColor(board, Color.White, isEndgame);
     score -= this.evaluateColor(board, Color.Black, isEndgame);
 
+    // Snake Protocol: Pawn Tension Penalty
+    // Penalise positions where pawns are directly threatening to capture each other.
+    // Each tense pawn pair is a latent file-opener — the engine prefers to manoeuvre
+    // rather than capture, keeping the pawn structure frozen and lines closed.
+    score += this.evaluatePawnTension(board);
+
     return score;
   }
 
@@ -249,5 +255,68 @@ export class PawnStructureEvaluator {
       }
     }
     return false;
+  }
+
+  /**
+   * Calculate the Pawn Tension Penalty (Snake Protocol).
+   *
+   * Pawn tension exists when a White pawn can diagonally capture a Black pawn
+   * or vice versa on the next move. Each such pair is a latent file-opener:
+   * whichever side captures will open a file, benefiting the attacking player.
+   *
+   * By penalising tension, the engine is steered toward manoeuvring moves that
+   * defuse tension without capturing, keeping the pawn structure frozen and all
+   * files closed — ideal for long defensive grinding games.
+   *
+   * The penalty is applied symmetrically: White pawn tension penalises White
+   * (reduces the score), Black pawn tension penalises Black (raises the score
+   * from White's perspective, which also reduces Black's effective score).
+   *
+   * @param board - Current board state
+   * @returns Tension score from White's perspective (negative = White penalised,
+   *          positive = Black penalised)
+   */
+  evaluatePawnTension(board: Board): number {
+    const PAWN_TENSION_PENALTY = -10; // centipawns per tense pawn pair
+    let score = 0;
+
+    for (const [square, piece] of board.getAllPieces()) {
+      if (piece.type !== PieceType.Pawn) continue;
+
+      const file = getFile(square);
+      const rank = getRank(square);
+
+      if (piece.color === Color.White) {
+        // A White pawn on (rank, file) attacks (rank+1, file-1) and (rank+1, file+1)
+        for (const targetFile of [file - 1, file + 1]) {
+          if (targetFile < 0 || targetFile > 7) continue;
+          const targetRank = rank + 1;
+          if (targetRank > 7) continue;
+          const targetSq = targetRank * 8 + targetFile;
+          const target = board.getPiece(targetSq);
+
+          if (target && target.type === PieceType.Pawn && target.color === Color.Black) {
+            // White pawn in tension with a Black pawn — penalise White
+            score += PAWN_TENSION_PENALTY;
+          }
+        }
+      } else {
+        // A Black pawn on (rank, file) attacks (rank-1, file-1) and (rank-1, file+1)
+        for (const targetFile of [file - 1, file + 1]) {
+          if (targetFile < 0 || targetFile > 7) continue;
+          const targetRank = rank - 1;
+          if (targetRank < 0) continue;
+          const targetSq = targetRank * 8 + targetFile;
+          const target = board.getPiece(targetSq);
+
+          if (target && target.type === PieceType.Pawn && target.color === Color.White) {
+            // Black pawn in tension with a White pawn — penalise Black (raise White's score)
+            score -= PAWN_TENSION_PENALTY; // Double negative = positive = penalises Black
+          }
+        }
+      }
+    }
+
+    return score;
   }
 }
