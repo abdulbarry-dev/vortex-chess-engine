@@ -130,7 +130,9 @@ export class PieceSquareEvaluator {
   evaluate(board: Board, isEndgame: boolean): number {
     let score = 0;
 
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       const tableValue = this.getTableValue(square, piece, isEndgame);
       score += piece.color === Color.White ? tableValue : -tableValue;
     }

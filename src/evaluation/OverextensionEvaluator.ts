@@ -41,7 +41,9 @@ export class OverextensionEvaluator {
     let penalty = 0;
     
     // (Simplified for performance: we no longer use getAttackedSquares or getAttackersOf in leaf nodes)
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.color !== color) continue;
 
       const rank = getRank(square);

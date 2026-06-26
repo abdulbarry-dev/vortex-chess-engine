@@ -71,7 +71,9 @@ export class KingSafetyEvaluator {
    * Find king position
    */
   private findKing(board: Board, color: Color): Square | null {
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type === PieceType.King && piece.color === color) {
         return square;
       }

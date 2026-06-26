@@ -25,7 +25,9 @@ export class CoordinationEvaluator {
     // Clustering is slightly less critical in endgame where pieces must become active and dispersed
     const weight = isEndgame ? 0.5 : 1.0;
 
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       const defendersBB = getAttackersOf(board, square, piece.color);
       let clusterScore = 0;
 

@@ -19,7 +19,9 @@ export class ComplexityEvaluator {
     let whitePieces = 0;
     let blackPieces = 0;
     
-    for (const [_square, piece] of board.getAllPieces()) {
+    for (let _square = 0; _square < 64; _square++) {
+      const piece = board.getPiece(_square);
+      if (!piece) continue;
       if (piece.type === PieceType.Queen) complexity += 30;
       else if (piece.type === PieceType.Rook) complexity += 10;
       else if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) complexity += 8;
@@ -41,7 +43,9 @@ export class ComplexityEvaluator {
     let whitePawnFiles = 0;
     let blackPawnFiles = 0;
     
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type === PieceType.Pawn) {
         const file = square % 8;
         if (piece.color === Color.White) whitePawnFiles |= (1 << file);

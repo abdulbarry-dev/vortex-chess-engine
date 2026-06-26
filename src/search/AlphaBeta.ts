@@ -6,14 +6,12 @@
 import { CHECKMATE_SCORE, MAX_SEARCH_DEPTH } from '../constants/SearchConstants';
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
-import { PieceType } from '../core/Piece';
 import { Evaluator } from '../evaluation/Evaluator';
 import { isInCheck, isMoveLegal } from '../move-generation/LegalityChecker';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { Move } from '../types/Move.types';
 import { SearchStats, TTEntryType } from '../types/Search.types';
 import { MoveExecutor } from '../core/MoveExecutor';
-import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 import { MovePicker } from './MovePicker';
 import { MoveOrderer } from './MoveOrdering';

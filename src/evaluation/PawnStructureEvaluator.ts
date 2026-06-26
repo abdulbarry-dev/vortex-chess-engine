@@ -131,7 +131,9 @@ export class PawnStructureEvaluator {
   private getPawns(board: Board, color: Color): Square[] {
     const pawns: Square[] = [];
 
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type === PieceType.Pawn && piece.color === color) {
         pawns.push(square);
       }
@@ -208,7 +210,9 @@ export class PawnStructureEvaluator {
       : Array.from({ length: rank }, (_, i) => rank - i - 1); // Ranks ahead for black
 
     // Check if any enemy pawn blocks or controls the path
-    for (const [enemySquare, piece] of board.getAllPieces()) {
+    for (let enemySquare = 0; enemySquare < 64; enemySquare++) {
+      const piece = board.getPiece(enemySquare);
+      if (!piece) continue;
       if (piece.type === PieceType.Pawn && piece.color === enemyColor) {
         const enemyFile = getFile(enemySquare);
         const enemyRank = getRank(enemySquare);
@@ -280,7 +284,9 @@ export class PawnStructureEvaluator {
     const PAWN_TENSION_PENALTY = -10; // centipawns per tense pawn pair
     let score = 0;
 
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type !== PieceType.Pawn) continue;
 
       const file = getFile(square);

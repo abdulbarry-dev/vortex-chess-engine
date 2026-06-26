@@ -23,7 +23,9 @@ export class MaterialEvaluator {
     let score = 0;
 
     // Count all pieces and apply values
-    for (const [_square, piece] of board.getAllPieces()) {
+    for (let _square = 0; _square < 64; _square++) {
+      const piece = board.getPiece(_square);
+      if (!piece) continue;
       const value = this.getPieceValue(piece.type);
       score += piece.color === Color.White ? value : -value;
     }
@@ -51,7 +53,9 @@ export class MaterialEvaluator {
   countMaterial(board: Board, color: Color): number {
     let material = 0;
 
-    for (const [_square, piece] of board.getAllPieces()) {
+    for (let _square = 0; _square < 64; _square++) {
+      const piece = board.getPiece(_square);
+      if (!piece) continue;
       if (piece.color === color) {
         material += this.getPieceValue(piece.type);
       }

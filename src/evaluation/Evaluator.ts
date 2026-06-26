@@ -102,7 +102,9 @@ export class Evaluator {
     // Quick endgame check (inlined for performance)
     let totalMaterial = 0;
     let queenCount = 0;
-    for (const [_square, piece] of board.getAllPieces()) {
+    for (let _square = 0; _square < 64; _square++) {
+      const piece = board.getPiece(_square);
+      if (!piece) continue;
       if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
         totalMaterial += 320;
       } else if (piece.type === PieceType.Rook) {
@@ -237,7 +239,9 @@ export class Evaluator {
     let totalPieces = 0;
     let nonPawnPieces = 0;
 
-    for (const [_sq, piece] of board.getAllPieces()) {
+    for (let _sq = 0; _sq < 64; _sq++) {
+      const piece = board.getPiece(_sq);
+      if (!piece) continue;
       totalPieces++;
       if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
         nonPawnPieces++;
@@ -278,7 +282,9 @@ export class Evaluator {
     let totalMaterial = 0;
     let queenCount = 0;
 
-    for (const [_square, piece] of board.getAllPieces()) {
+    for (let _square = 0; _square < 64; _square++) {
+      const piece = board.getPiece(_square);
+      if (!piece) continue;
       // Count material (excluding pawns and kings)
       if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
         totalMaterial += 320; // Average minor piece value
@@ -310,7 +316,9 @@ export class Evaluator {
     
     let otherPiecesCount = 0;
 
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type === PieceType.Bishop) {
         if (piece.color === Color.White) {
           whiteBishops++;
@@ -340,7 +348,9 @@ export class Evaluator {
     // 2. Locked pawn chains
     let blockedPawns = 0;
     let totalPawns = 0;
-    for (const [square, piece] of board.getAllPieces()) {
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
       if (piece.type === PieceType.Pawn) {
         totalPawns++;
         const direction = piece.color === Color.White ? 1 : -1;
@@ -363,7 +373,9 @@ export class Evaluator {
       let openFiles = 0;
       for (let file = 0; file < 8; file++) {
         let hasPawns = false;
-        for (const [sq, p] of board.getAllPieces()) {
+        for (let sq = 0; sq < 64; sq++) {
+      const p = board.getPiece(sq);
+      if (!p) continue;
           if (p.type === PieceType.Pawn && (sq % 8) === file) {
             hasPawns = true;
             break;
