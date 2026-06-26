@@ -1,14 +1,17 @@
 /**
  * @file TimeManager.ts
- * @description Time management for chess engine
- * 
- * Allocates search time intelligently based on:
- * 1. Remaining time on clock
- * 2. Increment per move
- * 3. Number of moves played
- * 4. Expected moves remaining
- * 
- * Prevents time pressure and ensures time for endgame.
+ * @description Defensive time management for the Vortex chess engine.
+ *
+ * Implements the Marathon Allocator: a time allocation strategy tuned for
+ * long defensive grinding games rather than the standard 40-move assumption.
+ *
+ * Key differences from a standard engine time manager:
+ * - Expected game length raised from 40 to 80 moves.
+ * - Emergency clock reserve raised from 10% to 15%.
+ * - Structural awareness: reduces time in locked/closed positions (safe shuffling)
+ *   and extends time when the position opens up (tactical breakthrough imminent).
+ *
+ * Reference: docs/research/marathon-time-management.md
  */
 
 /**
@@ -52,11 +55,14 @@ export interface TimeAllocation {
  * while ensuring enough time for critical positions.
  */
 export class TimeManager {
-  // Constants for time allocation
-  private readonly EXPECTED_MOVES_REMAINING = 40;
-  private readonly TIME_CUSHION = 0.95; // Use 95% of available time
-  private readonly MIN_TIME_MS = 10; // Never allocate less than 10ms
-  private readonly EMERGENCY_TIME_FRACTION = 0.1; // Reserve 10% for emergencies
+  // Marathon Allocator constants
+  //
+  // EXPECTED_MOVES_REMAINING is raised from the standard 40 to 80 to reflect
+  // Vortex's defensive style where games routinely exceed 60 moves.
+  private readonly EXPECTED_MOVES_REMAINING = 80;
+  private readonly TIME_CUSHION = 0.95;          // Use 95% of usable time budget
+  private readonly MIN_TIME_MS = 10;              // Never allocate less than 10ms
+  private readonly EMERGENCY_TIME_FRACTION = 0.15; // Reserve 15% for endgame emergencies
   
   /**
    * Calculate time allocation for current move
@@ -162,6 +168,53 @@ export class TimeManager {
   }
 
   /**
+   * Adjust time allocation based on pawn structure openness (Marathon Allocator).
+   *
+   * Closed positions (many locked pawn files) require less calculation time
+   * since the correct move is usually a safe piece shuffle. Open or semi-open
+   * positions require more time because the opponent may be creating tactical
+   * threats that must be accurately refuted.
+   *
+   * The soft limit (optimalTime) is adjusted; the hard ceiling (maxTime) is
+   * never reduced so the engine can still think longer if it chooses to.
+   *
+   * @param allocation  - Base time allocation from allocateTime()
+   * @param lockedFiles - Number of structurally locked pawn files (0-8)
+   * @param legalMoves  - Number of legal moves in the current position
+   * @returns Adjusted allocation with modified optimalTime
+   */
+  adjustForStructure(
+    allocation: TimeAllocation,
+    lockedFiles: number,
+    legalMoves: number
+  ): TimeAllocation {
+    let factor = 1.0;
+
+    if (lockedFiles >= 3) {
+      // Deeply closed position: safe shuffling is the plan, save clock time.
+      // The Blockade Evaluator and Variance Minimization will guide the move;
+      // we don't need deep calculation here.
+      factor = 0.70;
+    } else if (lockedFiles >= 1) {
+      // Semi-closed: mild reduction in calculation time.
+      factor = 0.85;
+    } else if (legalMoves >= 35) {
+      // Open and highly tactical: opponent likely creating concrete threats.
+      // Extend time to find the accurate defensive resource.
+      factor = 1.40;
+    } else if (legalMoves >= 25) {
+      // Moderately open: slight extension.
+      factor = 1.15;
+    }
+
+    return {
+      optimalTime: Math.floor(allocation.optimalTime * factor),
+      maxTime: allocation.maxTime,   // Never reduce the absolute hard ceiling
+      minTime: allocation.minTime,
+    };
+  }
+
+  /**
    * Calculate position complexity (0-1)
    * 
    * Factors:
@@ -177,7 +230,8 @@ export class TimeManager {
   calculateComplexity(
     legalMoves: number,
     pieceCount: number,
-    isTactical: boolean = false
+    isTactical: boolean = false,
+    lockedFiles: number = 0
   ): number {
     // Normalize legal moves (20 is average, 40+ is complex)
     const moveComplexity = Math.min(legalMoves / 40, 1);
@@ -188,13 +242,19 @@ export class TimeManager {
     // Tactical positions need more time
     const tacticalBonus = isTactical ? 0.3 : 0;
 
-    // Weighted average
-    const complexity = 
+    // Locked pawn files REDUCE complexity — the position is structurally stable
+    // and the correct move is less likely to change between search depths.
+    // Each locked file subtracts a small amount from the raw complexity score.
+    const structuralCalm = Math.min(lockedFiles / 4, 0.3);
+
+    // Weighted average with structural calm reduction
+    const complexity =
       moveComplexity * 0.4 +
       pieceComplexity * 0.4 +
-      tacticalBonus;
+      tacticalBonus -
+      structuralCalm;
 
-    return Math.min(complexity, 1);
+    return Math.max(0, Math.min(complexity, 1));
   }
 
   /**
