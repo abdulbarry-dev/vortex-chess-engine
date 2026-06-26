@@ -205,11 +205,10 @@ export class Evaluator {
       finalScore += stabilityPenalty * state.currentPlayer;
     }
 
-    // Snake Protocol: Piece Simplification Bonus
-    // When losing, reward positions where the total non-pawn piece count is low.
-    // Each piece traded off the board reduces the opponent's attacking resources
-    // and brings the game closer to a drawable endgame configuration.
-    finalScore += this.calculateSimplificationBonus(board, finalScore);
+    // Endgame Tablebase Magnetism (Piece Count Gravity)
+    // When losing, reward positions that approach the 7-piece tablebase threshold,
+    // incentivizing the engine to seek drawn endgames mathematically.
+    finalScore += this.calculateTablebaseMagnetism(board, finalScore);
 
     // 50-Move Rule Gravity (Draw by Attrition)
     // When losing, reward positions with a high halfmoveClock to incentivise
@@ -251,43 +250,46 @@ export class Evaluator {
   }
 
   /**
-   * Calculate the Piece Simplification Bonus (Snake Protocol).
+   * Calculate the Tablebase Magnetism Bonus.
    *
-   * When losing, reward positions where the total non-pawn, non-king piece count
-   * is low. Each piece traded off the board reduces the opponent's attacking
-   * resources. The bonus accumulates as the board simplifies, steering the engine
-   * to actively seek piece exchanges when in a losing position.
-   *
-   * Starting piece count (both sides combined): 14 non-pawn, non-king pieces.
-   * Bonus formula: (14 - currentCount) * BONUS_PER_PIECE centipawns.
+   * Simulates Syzygy tablebase gravity by heavily rewarding the defending side
+   * for reaching 7-piece endgames, and providing a steady gravitational pull
+   * toward simplification.
    *
    * @param board      - Current board state
    * @param finalScore - Current evaluation score (White's perspective)
    * @returns Bonus in centipawns (positive helps White, negative helps Black)
    */
-  private calculateSimplificationBonus(board: Board, finalScore: number): number {
-    if (Math.abs(finalScore) < 100) return 0; // Near-equal — no forced simplification needed
+  private calculateTablebaseMagnetism(board: Board, finalScore: number): number {
+    if (Math.abs(finalScore) < 50) return 0; // Only activates when tangibly behind
 
-    const BONUS_PER_PIECE = 8;        // cp bonus per piece already traded off
-    const STARTING_PIECE_COUNT = 14;  // 7 non-pawn non-king pieces per side at game start
+    let totalPieces = 0;
+    let nonPawnPieces = 0;
 
-    let currentPieceCount = 0;
     for (const [_sq, piece] of board.getAllPieces()) {
+      totalPieces++;
       if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
-        currentPieceCount++;
+        nonPawnPieces++;
       }
     }
 
-    const piecesTraded = STARTING_PIECE_COUNT - currentPieceCount;
-    if (piecesTraded <= 0) return 0;
+    // 1. Simplification Gravity (+8cp per traded non-pawn piece)
+    let bonus = (14 - nonPawnPieces) * 8;
 
-    const bonus = piecesTraded * BONUS_PER_PIECE;
+    // 2. Tablebase Threshold Anchor (+50cp flat if <= 7 pieces total)
+    if (totalPieces <= 7) {
+      bonus += 50;
+    }
 
-    if (finalScore < -100) {
-      // White is losing — reward White for having simplified the position
+    // Cap the bonus so we never flip the sign or completely flatten the evaluation gradient.
+    // We allow reducing the magnitude of the advantage by at most 50%.
+    bonus = Math.min(bonus, Math.abs(finalScore) * 0.5);
+
+    if (finalScore < -50) {
+      // White is losing — reward White for nearing tablebases
       return bonus;
-    } else if (finalScore > 100) {
-      // Black is losing — reward Black for having simplified (lower White's score)
+    } else if (finalScore > 50) {
+      // Black is losing — reward Black for nearing tablebases
       return -bonus;
     }
 

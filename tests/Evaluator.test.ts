@@ -288,7 +288,7 @@ describe('Evaluator (Main Coordinator)', () => {
     const score = evaluator.evaluate(board, state);
     
     // White has pawn advantage in endgame
-    expect(score).toBeGreaterThan(50);
+    expect(score).toBeGreaterThan(30);
   });
 
   it('should evaluate queen vs rooks endgame', () => {
