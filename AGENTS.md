@@ -58,6 +58,21 @@ The README is stale in several places:
 - Comments use JSDoc (`@file`, `@description`). Preserve this style when adding doc comments.
 - No `.env` files or runtime secrets.
 
+## Research Knowledge Base
+
+Vortex is a specialized defensive chess engine focused on prophylaxis, threat prediction, and fortress recognition. Whenever making architectural or evaluation changes, agents **MUST** consult the research knowledge base located in `docs/research/` to ensure the modifications align with the engine's defensive philosophy.
+
+Key documents to review:
+- `docs/research/defensive-philosophy.md`
+- `docs/research/threat-prediction.md`
+- `docs/research/fortress-recognition.md`
+- `docs/research/overextension-detection.md`
+- `docs/research/defensive-evaluation.md`
+- `docs/research/defensive-grandmasters.md`
+- `docs/research/engine-research.md`
+- `docs/research/defensive-ai-opportunities.md`
+- `docs/research/research-roadmap.md`
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 

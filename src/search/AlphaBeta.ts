@@ -12,6 +12,7 @@ import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { Move } from '../types/Move.types';
 import { SearchStats, TTEntryType } from '../types/Search.types';
 import { MoveExecutor } from '../core/MoveExecutor';
+import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 import { MovePicker } from './MovePicker';
 import { MoveOrderer } from './MoveOrdering';
@@ -286,6 +287,29 @@ export class AlphaBetaSearch {
       let extension = 0;
       if (isProphylactic && depth < MAX_SEARCH_DEPTH - 1) {
         extension = 1; // Prophylactic Extension
+      }
+      
+      // Decision Compression & Check Extension
+      // If the move restricts the opponent significantly (e.g. check), extend search
+      const givesCheck = isInCheck(board, state.currentPlayer);
+      if (givesCheck && depth < MAX_SEARCH_DEPTH - 1) {
+        extension = 1;
+      } else if (depth >= 3 && moveCount <= 2 && !move.captured) {
+        // For the best quiet moves, if they severely restrict opponent's safe mobility, extend
+        // We approximate this by seeing if the opponent has very few safe squares left
+        const opponentColor = state.currentPlayer;
+        const attackedByUs = getAttackedSquares(board, opponentColor === 1 ? -1 : 1);
+        // Simple heuristic: if we attack a huge portion of the board, it's highly restrictive
+        // A bitboard has 64 bits. If we attack > 30 squares, that's highly restrictive.
+        let attackedCount = 0;
+        let bb = attackedByUs;
+        while (bb) {
+          attackedCount++;
+          bb &= bb - 1n;
+        }
+        if (attackedCount > 30 && depth < MAX_SEARCH_DEPTH - 1) {
+          extension = 1; // Decision Compression Extension
+        }
       }
       
       // Make move in place

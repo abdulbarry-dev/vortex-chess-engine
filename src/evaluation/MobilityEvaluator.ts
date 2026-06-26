@@ -7,12 +7,13 @@ import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
 import { Color } from '../core/Piece';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
+import { getAttackedSquares } from '../move-generation/AttackDetector';
 
 /**
- * Mobility bonus per legal move
+ * Mobility bonus per safe legal move
  * Encourages piece activity and flexibility
  */
-const MOBILITY_BONUS = 1;
+const MOBILITY_BONUS = 2; // Increased to prioritize Strategic Entropy
 
 /**
  * Evaluates piece mobility
@@ -40,34 +41,43 @@ export class MobilityEvaluator {
 
     let score = 0;
 
-    // Count moves for white
-    const whiteMoves = this.countMoves(board, state, Color.White);
+    // Count safe moves for white
+    const whiteMoves = this.countSafeMoves(board, state, Color.White);
     score += whiteMoves * MOBILITY_BONUS * weight;
 
-    // Count moves for black
-    const blackMoves = this.countMoves(board, state, Color.Black);
+    // Count safe moves for black
+    const blackMoves = this.countSafeMoves(board, state, Color.Black);
     score -= blackMoves * MOBILITY_BONUS * weight;
 
     return Math.round(score);
   }
 
   /**
-   * Count legal moves for a color
+   * Count safe legal moves for a color (Strategic Entropy / Mobility Variance)
    * 
    * @param board Current board state
    * @param state Current game state
    * @param color Color to count moves for
-   * @returns Number of legal moves
+   * @returns Number of safe legal moves
    */
-  private countMoves(board: Board, state: GameState, color: Color): number {
+  private countSafeMoves(board: Board, state: GameState, color: Color): number {
     // Temporarily switch turn
     const originalPlayer = state.currentPlayer;
     state.currentPlayer = color;
 
     const moves = this.moveGenerator.generateLegalMoves(board, state);
+    const opponentColor = color === Color.White ? Color.Black : Color.White;
+    const attackedSquares = getAttackedSquares(board, opponentColor);
+    
+    let safeMoves = 0;
+    for (const move of moves) {
+      if ((attackedSquares & (1n << BigInt(move.to))) === 0n) {
+        safeMoves++;
+      }
+    }
     
     // Restore turn
     state.currentPlayer = originalPlayer;
-    return moves.length;
+    return safeMoves;
   }
 }
