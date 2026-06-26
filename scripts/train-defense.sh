@@ -8,11 +8,11 @@ echo "======================================================="
 # 1. Download a highly tactical opening suite (UHO - Unbalanced Human Openings)
 # This forces Vortex out of its comfort zone and prevents move-10 draws.
 echo "[1/4] Checking for UHO tactical opening suite..."
-if [ ! -f "scripts/uho.epd" ]; then
+if [ ! -f "uho.epd" ]; then
   echo "      Downloading UHO suite (requires internet connection)..."
-  curl -L -o scripts/uho.epd https://raw.githubusercontent.com/official-stockfish/books/master/UHO_4060_v2.epd
+  curl -L -o uho.epd https://raw.githubusercontent.com/official-stockfish/books/master/UHO_4060_v2.epd
 else
-  echo "      scripts/uho.epd already exists, skipping download (Offline mode active)."
+  echo "      uho.epd already exists, skipping download (Offline mode active)."
 fi
 
 # 2. Run 10,000 games of Vortex vs Vortex using the tactical openings
@@ -23,7 +23,7 @@ echo "      Using 6 CPU cores to parallelize the matches."
   -engine cmd="$PWD/dist/cli.js" name="Vortex-Black" \
   -each proto=uci tc=2+0.05 \
   -rounds 5000 -repeat -concurrency 6 \
-  -openings file=scripts/uho.epd format=epd order=random \
+  -openings file=uho.epd format=epd order=random \
   -pgnout scripts/training_games.pgn
 
 # 3. Convert the PGN to EPD using our Python script

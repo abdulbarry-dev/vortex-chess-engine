@@ -32,6 +32,9 @@ package-lock.json
 .github/
 # Test output files
 *.pgn
+*.epd
+dataset.epd
+uho.epd
 
 # Temporary test files
 /tmp/vortex-test.txt
