@@ -41,3 +41,8 @@ docs/
 .dolt/
 *.db
 .beads-credential-key
+CuteChess.AppImage
+squashfs-root/
+error.log
+run_vortex.sh
+match_*.pgn
