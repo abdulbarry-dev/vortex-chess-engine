@@ -7,10 +7,13 @@
 import { Board } from '../core/Board';
 import { Color, PieceType } from '../core/Piece';
 import { getRank } from '../core/Square';
-import { getAttackedSquares } from '../move-generation/AttackDetector';
+import { getAttackedSquares, getAttackersOf } from '../move-generation/AttackDetector';
+import { popCount } from '../bitboard/Bitboard';
 
 const OVEREXTENDED_PAWN_PENALTY = -20;
+const BRITTLE_PAWN_PENALTY = -10; // New: pawn storm supported by only 1 piece
 const OVEREXTENDED_PIECE_PENALTY = -15;
+const BRITTLE_PIECE_PENALTY = -8;
 
 export class OverextensionEvaluator {
   /**
@@ -64,11 +67,25 @@ export class OverextensionEvaluator {
         // Advanced pawn without friendly pawn/piece support
         if (!isDefendedByUs) {
           penalty += Math.abs(OVEREXTENDED_PAWN_PENALTY);
+        } else {
+          // Brittleness Evaluation: Check if the advanced pawn storm is brittle (supported by exactly 1 piece)
+          const defenders = getAttackersOf(board, square, color);
+          if (popCount(defenders) === 1) {
+            penalty += Math.abs(BRITTLE_PAWN_PENALTY);
+          }
         }
       } else if (piece.type !== PieceType.King) {
-        // Advanced piece that is attacked by the enemy and not adequately defended
-        if (isAttackedByEnemy && !isDefendedByUs) {
-          penalty += Math.abs(OVEREXTENDED_PIECE_PENALTY);
+        // Advanced piece that is attacked by the enemy
+        if (isAttackedByEnemy) {
+          if (!isDefendedByUs) {
+            penalty += Math.abs(OVEREXTENDED_PIECE_PENALTY);
+          } else {
+            // Brittleness Evaluation for pieces
+            const defenders = getAttackersOf(board, square, color);
+            if (popCount(defenders) === 1) {
+              penalty += Math.abs(BRITTLE_PIECE_PENALTY);
+            }
+          }
         }
       }
     }
