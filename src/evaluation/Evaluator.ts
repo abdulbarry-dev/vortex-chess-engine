@@ -198,18 +198,50 @@ export class Evaluator {
     }
     
     // Variance Minimization (Stability Grind Mode)
-    // If the evaluation is highly volatile across depths (score swings > 50cp),
-    // penalize complexity for the side that just moved to steer the search toward stability.
     if (currentVolatility >= 50) {
       const complexity = this.complexityEvaluator.evaluate(board);
       const volatilityFactor = Math.min(currentVolatility / 200, 1.0);
-      const stabilityPenalty = Math.round(complexity * volatilityFactor * 0.5); // 50% weight
-      
-      // Penalize the side who just moved (state.currentPlayer is the side to move next)
+      const stabilityPenalty = Math.round(complexity * volatilityFactor * 0.5);
       finalScore += stabilityPenalty * state.currentPlayer;
     }
 
+    // 50-Move Rule Gravity (Draw by Attrition)
+    // When losing, reward positions with a high halfmoveClock to incentivise
+    // piece shuffles over pawn pushes or captures, running down the draw clock.
+    finalScore += this.calculateAttritionBonus(finalScore, state.halfmoveClock);
+
     return finalScore;
+  }
+
+  /**
+   * Calculate the Attrition Bonus for the 50-Move Rule Gravity system.
+   *
+   * Applies an increasing bonus to positions where the halfmoveClock is high
+   * and the engine is losing, steering the search toward non-resetting moves.
+   * Activates Clock Danger Mode (higher bonus) when halfmoveClock >= 80 plies.
+   *
+   * @param finalScore    - Current evaluation score from White's perspective
+   * @param halfmoveClock - Current halfmove clock value (100 = fifty-move draw)
+   * @returns Bonus in centipawns (positive favours White, negative favours Black)
+   */
+  private calculateAttritionBonus(finalScore: number, halfmoveClock: number): number {
+    // Only activate when meaningfully behind and the clock is advanced
+    if (halfmoveClock < 10) return 0;
+    if (Math.abs(finalScore) < 100) return 0; // Position roughly equal — no attrition needed
+
+    // Clock Danger Mode: boost the bonus significantly when 40+ moves have elapsed without reset
+    const maxBonus = halfmoveClock >= 80 ? 60 : 40;
+    const bonus = Math.round((halfmoveClock / 100) * maxBonus);
+
+    if (finalScore < -100) {
+      // White is losing — raise White's score toward 0 to reward non-resetting moves
+      return bonus;
+    } else if (finalScore > 100) {
+      // Black is losing — lower White's score toward 0 to reward Black's non-resetting moves
+      return -bonus;
+    }
+
+    return 0;
   }
 
   /**
