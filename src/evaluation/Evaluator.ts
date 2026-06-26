@@ -271,6 +271,26 @@ export class Evaluator {
       } else if (blockedPawns >= 6) {
         factor *= 0.75;
       }
+      
+      // 3. Lack of Open Files for heavy pieces
+      let openFiles = 0;
+      for (let file = 0; file < 8; file++) {
+        let hasPawns = false;
+        for (const [sq, p] of board.getAllPieces()) {
+          if (p.type === PieceType.Pawn && (sq % 8) === file) {
+            hasPawns = true;
+            break;
+          }
+        }
+        if (!hasPawns) openFiles++;
+      }
+      
+      // If there are no open files and many pawns are blocked, it is a very strong fortress
+      if (openFiles === 0 && blockedPawns >= 8) {
+        factor *= 0.4; // Extreme drawish tendency
+      } else if (openFiles <= 1 && blockedPawns >= 6) {
+        factor *= 0.6;
+      }
     }
 
     return factor;
