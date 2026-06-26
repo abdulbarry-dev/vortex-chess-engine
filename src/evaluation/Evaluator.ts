@@ -137,6 +137,20 @@ export class Evaluator {
       finalScore = Math.round(finalScore * fortressFactor);
     }
 
+    // Swindle Mode Trigger (Anti-Trade Heuristic)
+    // When a side is losing heavily, we add a complexity bonus. This heavily penalizes
+    // trading pieces (which lowers complexity) for the losing side, while encouraging
+    // the winning side to force trades to remove this bonus.
+    if (finalScore < -200) {
+      const swindleFactor = Math.min((-finalScore - 200) / 1000, 1.0);
+      const complexity = this.getComplexityScore(board);
+      finalScore += Math.round(complexity * swindleFactor);
+    } else if (finalScore > 200) {
+      const swindleFactor = Math.min((finalScore - 200) / 1000, 1.0);
+      const complexity = this.getComplexityScore(board);
+      finalScore -= Math.round(complexity * swindleFactor);
+    }
+
     return finalScore;
   }
 
@@ -234,6 +248,29 @@ export class Evaluator {
     }
 
     return factor;
+  }
+
+  /**
+   * Calculate complexity score to encourage keeping pieces on board when losing (Swindle Mode).
+   * This score is added to the losing side's evaluation.
+   */
+  private getComplexityScore(board: Board): number {
+    let complexity = 0;
+    
+    // Reward having pieces on the board (Queens are most complex)
+    for (const [_square, piece] of board.getAllPieces()) {
+      if (piece.type === PieceType.Queen) {
+        complexity += 50;
+      } else if (piece.type === PieceType.Rook) {
+        complexity += 15;
+      } else if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
+        complexity += 10;
+      } else if (piece.type === PieceType.Pawn) {
+        complexity += 2;
+      }
+    }
+    
+    return complexity;
   }
 
   /**
