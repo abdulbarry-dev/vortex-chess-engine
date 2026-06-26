@@ -127,7 +127,17 @@ export class Evaluator {
       score += this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY;
     }
 
-    return Math.round(score);
+    let finalScore = Math.round(score);
+
+    // Fortress Mode Trigger
+    // If the evaluation strongly favors one side, check for fortress conditions.
+    // A fortress scales the evaluation down towards 0 (a draw).
+    if (Math.abs(finalScore) > 200) {
+      const fortressFactor = this.calculateFortressFactor(board, isEndgame);
+      finalScore = Math.round(finalScore * fortressFactor);
+    }
+
+    return finalScore;
   }
 
   /**
@@ -157,6 +167,73 @@ export class Evaluator {
     // 1. No queens on board, OR
     // 2. Total material is low (both sides combined)
     return queenCount === 0 || totalMaterial < ENDGAME_MATERIAL_THRESHOLD;
+  }
+
+  /**
+   * Calculates a factor between 0.0 and 1.0 to scale down the score if fortress conditions are met.
+   */
+  private calculateFortressFactor(board: Board, _isEndgame: boolean): number {
+    let factor = 1.0;
+    
+    // 1. Opposite Colored Bishops
+    let whiteBishops = 0;
+    let blackBishops = 0;
+    let whiteBishopSquare = -1;
+    let blackBishopSquare = -1;
+    
+    let otherPiecesCount = 0;
+
+    for (const [square, piece] of board.getAllPieces()) {
+      if (piece.type === PieceType.Bishop) {
+        if (piece.color === Color.White) {
+          whiteBishops++;
+          whiteBishopSquare = square;
+        } else {
+          blackBishops++;
+          blackBishopSquare = square;
+        }
+      } else if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
+        otherPiecesCount++;
+      }
+    }
+
+    const isLightSquare = (sq: number) => ((Math.floor(sq / 8) + (sq % 8)) % 2 !== 0);
+    const hasOppositeColoredBishops = 
+      whiteBishops === 1 && 
+      blackBishops === 1 && 
+      isLightSquare(whiteBishopSquare) !== isLightSquare(blackBishopSquare);
+
+    if (hasOppositeColoredBishops) {
+      factor *= 0.5; // Opposite colored bishops heavily drawish
+      if (otherPiecesCount === 0) {
+        factor *= 0.5; // Only bishops and pawns -> very high draw tendency
+      }
+    }
+
+    // 2. Locked pawn chains
+    let blockedPawns = 0;
+    let totalPawns = 0;
+    for (const [square, piece] of board.getAllPieces()) {
+      if (piece.type === PieceType.Pawn) {
+        totalPawns++;
+        const direction = piece.color === Color.White ? 1 : -1;
+        const advanceSquare = square + (direction * 8);
+        if (advanceSquare >= 0 && advanceSquare <= 63 && board.getPiece(advanceSquare) !== null) {
+          blockedPawns++;
+        }
+      }
+    }
+
+    if (totalPawns > 0) {
+      // If a large number of pawns are blocked, the position is closed/locked
+      if (blockedPawns >= 10) {
+        factor *= 0.5;
+      } else if (blockedPawns >= 6) {
+        factor *= 0.75;
+      }
+    }
+
+    return factor;
   }
 
   /**

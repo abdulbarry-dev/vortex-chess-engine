@@ -70,7 +70,25 @@ export class PawnStructureEvaluator {
       if (this.isPassed(board, square, color)) {
         const rank = getRank(square);
         const adjustedRank = color === Color.White ? rank : 7 - rank;
-        score += PASSED_PAWN_BONUS[adjustedRank] ?? 0;
+        let bonus = PASSED_PAWN_BONUS[adjustedRank] ?? 0;
+
+        // Blockade Scoring: Check if the square in front is occupied by an enemy minor piece
+        const direction = color === Color.White ? 1 : -1;
+        const blockSquare = square + (direction * 8);
+        if (blockSquare >= 0 && blockSquare <= 63) {
+          const blockingPiece = board.getPiece(blockSquare);
+          if (blockingPiece && blockingPiece.color !== color && 
+             (blockingPiece.type === PieceType.Knight || blockingPiece.type === PieceType.Bishop)) {
+             
+             // The passed pawn is firmly blockaded! 
+             // Severely reduce its bonus (reduce by 75%)
+             bonus = Math.floor(bonus / 4); 
+             
+             // Implicitly reward the defender's blockade by penalizing the pawn owner
+             score -= 30; // +30 centipawns for the blockading piece's side
+          }
+        }
+        score += bonus;
       }
     }
 
