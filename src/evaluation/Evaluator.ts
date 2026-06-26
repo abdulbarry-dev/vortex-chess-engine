@@ -115,7 +115,7 @@ export class Evaluator {
 
     // Only compute expensive evaluations if weights are non-zero
     if (EVALUATION_WEIGHTS.PAWN_STRUCTURE > 0) {
-      score += this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
+      score += this.pawnStructure.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
     }
 
     if (EVALUATION_WEIGHTS.KING_SAFETY > 0) {
@@ -138,6 +138,13 @@ export class Evaluator {
     }
 
     let finalScore = Math.round(score);
+
+    // Kramnik's Berlin Heuristic
+    // If it's a "queenless middlegame" (queens are off, but total material is still high),
+    // give Black a defensive bonus for neutralizing White's attacking initiative early.
+    if (queenCount === 0 && totalMaterial >= ENDGAME_MATERIAL_THRESHOLD) {
+      finalScore -= 30; // Bonus for Black (score is from White's perspective)
+    }
 
     // Fortress Mode Trigger
     // If the evaluation strongly favors one side, check for fortress conditions.
@@ -340,7 +347,7 @@ export class Evaluator {
 
     const material = this.material.evaluate(board) * EVALUATION_WEIGHTS.MATERIAL;
     const pieceSquare = this.pieceSquare.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PIECE_SQUARE;
-    const pawnStructure = this.pawnStructure.evaluate(board) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
+    const pawnStructure = this.pawnStructure.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.PAWN_STRUCTURE;
     const kingSafety = this.kingSafety.evaluate(board, isEndgame) * EVALUATION_WEIGHTS.KING_SAFETY;
     const coordination = this.coordination.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.COORDINATION;
     const mobility = this.mobility ? this.mobility.evaluate(board, state, isEndgame) * EVALUATION_WEIGHTS.MOBILITY : 0;

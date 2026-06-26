@@ -27,11 +27,11 @@ export class PawnStructureEvaluator {
    * @param board Current board state
    * @returns Pawn structure score in centipawns
    */
-  evaluate(board: Board): number {
+  evaluate(board: Board, isEndgame: boolean): number {
     let score = 0;
 
-    score += this.evaluateColor(board, Color.White);
-    score -= this.evaluateColor(board, Color.Black);
+    score += this.evaluateColor(board, Color.White, isEndgame);
+    score -= this.evaluateColor(board, Color.Black, isEndgame);
 
     return score;
   }
@@ -43,7 +43,7 @@ export class PawnStructureEvaluator {
    * @param color Color to evaluate
    * @returns Pawn structure score (positive = good)
    */
-  private evaluateColor(board: Board, color: Color): number {
+  private evaluateColor(board: Board, color: Color, isEndgame: boolean): number {
     let score = 0;
     const pawns = this.getPawns(board, color);
 
@@ -89,6 +89,16 @@ export class PawnStructureEvaluator {
           }
         }
         score += bonus;
+      }
+
+      // Structural Commitment Cost: Penalize early/unnecessary flank pawn pushes to encourage flexibility
+      if (!isEndgame && (file < 3 || file > 4)) {
+        const rank = getRank(square);
+        const startRank = color === Color.White ? 1 : 6;
+        const pushedSquares = Math.abs(rank - startRank);
+        if (pushedSquares > 0) {
+          score -= pushedSquares * 3; // -3 centipawns per pushed square
+        }
       }
     }
 
