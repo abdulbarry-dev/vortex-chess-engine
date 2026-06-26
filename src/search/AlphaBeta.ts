@@ -260,6 +260,20 @@ export class AlphaBetaSearch {
     let moveCount = 0;
     let legalMovesFound = 0;
 
+    // Track move clusters for Plan-Based Search (SCT)
+    const clusterBestScores = new Map<number, number>();
+    const clusterCounts = new Map<number, number>();
+
+    // Helper to determine the strategic cluster of a move
+    // Groups by piece type and kingside/queenside/center
+    const getMoveCluster = (m: Move): number => {
+      const file = m.to % 8;
+      let region = 0; // Center (files c, d, e, f)
+      if (file < 2) region = 1; // Queenside (files a, b)
+      else if (file > 5) region = 2; // Kingside (files g, h)
+      return (m.piece.type << 4) | region;
+    };
+
     let move = movePicker.nextMove();
     while (move !== null) {
       // Futility pruning: skip quiet moves if condition is met
@@ -328,8 +342,22 @@ export class AlphaBetaSearch {
         !isProphylactic; // Do not reduce prophylactic moves
 
       if (canReduceDepth) {
+        // Plan-Based Search: Cluster penalty
+        // If the first move of this cluster (the representative) didn't raise alpha,
+        // we penalize subsequent moves in the same cluster with an extra reduction.
+        const cluster = getMoveCluster(move);
+        const countInCluster = clusterCounts.get(cluster) || 0;
+        const bestInCluster = clusterBestScores.get(cluster) || -Infinity;
+        
+        clusterCounts.set(cluster, countInCluster + 1);
+        
+        let clusterPenalty = 0;
+        if (countInCluster > 0 && bestInCluster <= alpha) {
+          clusterPenalty = 1; // The strategic plan failed, reduce other implementations
+        }
+
         // Search with reduced depth first
-        const reduction = moveCount > 8 ? 2 : 1;
+        const reduction = (moveCount > 8 ? 2 : 1) + clusterPenalty;
         score = -this.search(board, state, depth - 1 + extension - reduction, -alpha - 1, -alpha, ply + 1);
         
         // If reduced search failed high, re-search at full depth
@@ -339,6 +367,15 @@ export class AlphaBetaSearch {
       } else {
         // Normal search at full depth
         score = -this.search(board, state, depth - 1 + extension, -beta, -alpha, ply + 1);
+      }
+
+      // Update cluster best score
+      if (!move.captured && !move.promotion) {
+        const cluster = getMoveCluster(move);
+        const currentClusterBest = clusterBestScores.get(cluster) || -Infinity;
+        if (score > currentClusterBest) {
+          clusterBestScores.set(cluster, score);
+        }
       }
 
       // Unmake move in place
