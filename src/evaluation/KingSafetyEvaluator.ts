@@ -75,10 +75,6 @@ export class KingSafetyEvaluator {
     return null;
   }
 
-  /**
-   * Evaluate pawn shield in front of king
-   * Checks the three files around the king
-   */
   private evaluatePawnShield(board: Board, kingSquare: Square, color: Color): number {
     const file = getFile(kingSquare);
     const rank = getRank(kingSquare);
@@ -89,9 +85,16 @@ export class KingSafetyEvaluator {
     // Check three files: king file and adjacent files
     const filesToCheck = [file - 1, file, file + 1].filter(f => f >= 0 && f < 8);
 
+    // Determine if king is safely tucked away (castled or castling-like position)
+    const isKingHome = (color === Color.White && rank <= 1) || (color === Color.Black && rank >= 6);
+    const isCastled = isKingHome && (file <= 2 || file >= 5);
+
     for (const f of filesToCheck) {
-      // Check one and two ranks in front of king
-      for (let rankOffset = 1; rankOffset <= 2; rankOffset++) {
+      let hasPawn = false;
+      let pawnRankOffset = 99;
+
+      // Find the closest friendly pawn in front of the king on this file
+      for (let rankOffset = 1; rankOffset <= 6; rankOffset++) {
         const checkRank = rank + (direction * rankOffset);
         if (checkRank < 0 || checkRank > 7) continue;
 
@@ -99,8 +102,39 @@ export class KingSafetyEvaluator {
         const piece = board.getPiece(checkSquare);
 
         if (piece && piece.type === PieceType.Pawn && piece.color === color) {
-          // Bonus for pawn in shield, more for closer pawns
-          shieldScore += PAWN_SHIELD_BONUS * (3 - rankOffset);
+          hasPawn = true;
+          pawnRankOffset = rankOffset;
+          break;
+        }
+      }
+
+      if (hasPawn) {
+        if (pawnRankOffset === 1) {
+          // Perfect shield
+          shieldScore += PAWN_SHIELD_BONUS * 2; 
+        } else if (pawnRankOffset === 2) {
+          // Pawn has moved 1 square
+          shieldScore += PAWN_SHIELD_BONUS; 
+          if (isCastled) {
+            // King Shield Immutability: Penalize loosening the shield
+            shieldScore -= 15;
+          }
+        } else if (pawnRankOffset > 2) {
+          // Pawn is pushed very far
+          if (isCastled) {
+            // Overextension Detection: Pushing the king shield leaves the king hopelessly exposed
+            shieldScore -= 30; 
+          } else {
+            // Uncastled king with advanced pawns
+            shieldScore -= 10;
+          }
+        }
+      } else {
+        // Missing pawn on this file
+        if (isCastled) {
+          shieldScore -= 20; // Severe weakness
+        } else {
+          shieldScore -= 5;
         }
       }
     }
