@@ -66,3 +66,6 @@ test_eval.ts
 .claude/
 .opencode/
 .beads/
+
+# Scripts
+scripts/
