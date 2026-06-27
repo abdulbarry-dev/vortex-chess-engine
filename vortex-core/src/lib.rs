@@ -7,6 +7,9 @@ pub mod move_core;
 pub mod movegen;
 pub mod zobrist;
 pub mod tt;
+pub mod state;
+pub mod evaluate;
+pub mod search;
 
 use wasm_bindgen::prelude::*;
 use crate::board::Board;
@@ -14,13 +17,15 @@ use crate::types::{Color, PieceType};
 use crate::magic::{init_magics, get_rook_attacks, get_bishop_attacks};
 use crate::attacks::init_step_attacks;
 use crate::movegen::generate_pseudo_legal_moves;
-use crate::zobrist::init_zobrist;
+use crate::zobrist::{init_zobrist, get_zobrist};
 use crate::tt::TranspositionTable;
+use crate::state::GameState;
+use crate::search::{search_position, SearchControl};
 
 #[wasm_bindgen]
 pub struct VortexCore {
     version: String,
-    board: Board,
+    state: GameState,
     tt: TranspositionTable,
 }
 
@@ -33,9 +38,19 @@ impl VortexCore {
         init_zobrist();
         VortexCore {
             version: String::from("2.0.0-rust-alpha"),
-            board: Board::new(),
+            state: GameState::new(),
             tt: TranspositionTable::new(16), // 16 MB default
         }
+    }
+
+    #[wasm_bindgen]
+    pub fn reset_board(&mut self) {
+        self.state = GameState::new();
+    }
+
+    #[wasm_bindgen]
+    pub fn set_side_to_move(&mut self, is_white: bool) {
+        self.state.side_to_move = if is_white { Color::White } else { Color::Black };
     }
 
     #[wasm_bindgen]
@@ -56,7 +71,7 @@ impl VortexCore {
             6 => PieceType::King,
             _ => return, // Invalid piece type
         };
-        self.board.add_piece(color, pt, sq);
+        self.state.board.add_piece(color, pt, sq);
     }
     
     // We can return the low and high 32 bits of a u64 since JS numbers (f64) 
@@ -74,7 +89,7 @@ impl VortexCore {
             6 => PieceType::King,
             _ => return 0,
         };
-        self.board.get_pieces(color, pt)
+        self.state.board.get_pieces(color, pt)
     }
 
     #[wasm_bindgen]
@@ -91,7 +106,7 @@ impl VortexCore {
     #[wasm_bindgen]
     pub fn generate_pseudo_legal_moves(&self, is_white: bool) -> js_sys::Uint16Array {
         let color = if is_white { Color::White } else { Color::Black };
-        let move_list = generate_pseudo_legal_moves(&self.board, color);
+        let move_list = generate_pseudo_legal_moves(&self.state.board, color);
         
         let mut raw = Vec::with_capacity(move_list.count);
         for i in 0..move_list.count {
@@ -99,5 +114,25 @@ impl VortexCore {
         }
         
         js_sys::Uint16Array::from(&raw[..])
+    }
+
+    // Search the position and return the best move as a u16
+    #[wasm_bindgen]
+    pub fn search(&mut self, depth: i8) -> u16 {
+        let mut ctrl = SearchControl {
+            nodes: 0,
+            stop: false,
+            time_limit_ms: 5000,
+        };
+        
+        // Very simple search trigger
+        search_position(self.state.clone(), depth, -30000, 30000, 0, &mut self.tt, &mut ctrl);
+        
+        // Grab the best move from the root TT entry
+        let hash = get_zobrist().compute_hash(&self.state.board, self.state.side_to_move, self.state.castling_rights, self.state.en_passant_sq);
+        if let Some(entry) = self.tt.probe(hash) {
+            return entry.best_move;
+        }
+        0 // No move found (checkmate/stalemate/error)
     }
 }
