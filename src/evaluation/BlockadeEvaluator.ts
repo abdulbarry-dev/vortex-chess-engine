@@ -176,4 +176,25 @@ export class BlockadeEvaluator {
   getLockedFileCount(board: Board): number {
     return this.detectLockedFiles(board);
   }
+
+  /**
+   * Return a centrality-weighted score of locked files.
+   * Solves 'Positionally Naive' blockades by valuing central locks more than flank locks.
+   * Weights: a/h = 1, b/g = 2, c/f = 3, d/e = 4.
+   *
+   * @param board - Current board state
+   * @returns Weighted score of locked files
+   */
+  getWeightedLockedScore(board: Board): number {
+    let score = 0;
+    const fileWeights = [1, 2, 3, 4, 4, 3, 2, 1]; // a to h
+
+    for (let file = 0; file < 8; file++) {
+      if (this.isFileLocked(board, file)) {
+        score += fileWeights[file]!;
+      }
+    }
+
+    return score;
+  }
 }

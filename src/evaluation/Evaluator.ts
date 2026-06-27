@@ -99,16 +99,27 @@ export class Evaluator {
     // Material evaluation (most important) - always fast
     const materialScore = this.material.evaluate(board) * EVALUATION_WEIGHTS.MATERIAL;
 
-    // Quick endgame check (inlined for performance)
+    // Quick endgame check and detailed material counting (inlined for performance)
     let totalMaterial = 0;
     let queenCount = 0;
+    
+    let whiteKnights = 0, blackKnights = 0;
+    let whiteBishops = 0, blackBishops = 0;
+    let whiteRooks = 0, blackRooks = 0;
+
     for (let _square = 0; _square < 64; _square++) {
       const piece = board.getPiece(_square);
       if (!piece) continue;
-      if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop) {
+      
+      if (piece.type === PieceType.Knight) {
         totalMaterial += 320;
+        if (piece.color === Color.White) whiteKnights++; else blackKnights++;
+      } else if (piece.type === PieceType.Bishop) {
+        totalMaterial += 320;
+        if (piece.color === Color.White) whiteBishops++; else blackBishops++;
       } else if (piece.type === PieceType.Rook) {
         totalMaterial += 500;
+        if (piece.color === Color.White) whiteRooks++; else blackRooks++;
       } else if (piece.type === PieceType.Queen) {
         totalMaterial += 900;
         queenCount++;
@@ -147,10 +158,40 @@ export class Evaluator {
     }
 
     // Pawn Structure Gridlocking (Blockade Evaluator)
-    // Rewards locked pawn structures that extend game length and reduce the opponent's
-    // attacking options. Core to Vortex's long defensive game strategy.
     if (EVALUATION_WEIGHTS.BLOCKADE > 0 && !isEndgame) {
       score += this.blockade.evaluate(board) * EVALUATION_WEIGHTS.BLOCKADE;
+      
+      // Petrosian Exchange Sacrifice Detection (Phase 1 Fixes)
+      // Detect if either side is down an exchange (missing a Rook, but up a Minor piece)
+      const whiteMinors = whiteKnights + whiteBishops;
+      const blackMinors = blackKnights + blackBishops;
+      
+      const isWhiteExchangeDown = (whiteRooks === blackRooks - 1) && (whiteMinors === blackMinors + 1);
+      const isBlackExchangeDown = (blackRooks === whiteRooks - 1) && (blackMinors === whiteMinors + 1);
+      
+      if (isWhiteExchangeDown || isBlackExchangeDown) {
+        const weightedLockScore = this.blockade.getWeightedLockedScore(board);
+        
+        // A weighted score of >= 6 indicates a strong central lock
+        if (weightedLockScore >= 6) {
+          let exchangeBonus = 0;
+          
+          if (isWhiteExchangeDown) {
+             // Knight vs Bishop split (Rook-for-Knight is vastly superior in locked centers)
+             if (whiteKnights > blackKnights) exchangeBonus = 120;
+             else exchangeBonus = 40;
+             score += exchangeBonus; // Helps White (offsets the -180 raw penalty)
+          } else {
+             if (blackKnights > whiteKnights) exchangeBonus = 120;
+             else exchangeBonus = 40;
+             score -= exchangeBonus; // Helps Black
+          }
+        } else if (weightedLockScore > 0) {
+          // Flank lock only
+          if (isWhiteExchangeDown) score += 40;
+          else score -= 40;
+        }
+      }
     }
 
     let finalScore = Math.round(score);
