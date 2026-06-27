@@ -35,9 +35,11 @@ export class PawnStructureEvaluator {
 
     // Snake Protocol: Pawn Tension Penalty
     // Penalise positions where pawns are directly threatening to capture each other.
-    // Each tense pawn pair is a latent file-opener — the engine prefers to manoeuvre
-    // rather than capture, keeping the pawn structure frozen and lines closed.
     score += this.evaluatePawnTension(board);
+
+    // Fortress Phase 2: Pawn Break Vulnerability Map
+    // Anticipate pawn breaks up to 4 moves in advance and structurally penalize them.
+    score += this.evaluatePawnBreakVulnerability(board);
 
     return score;
   }
@@ -318,6 +320,77 @@ export class PawnStructureEvaluator {
           if (target && target.type === PieceType.Pawn && target.color === Color.White) {
             // Black pawn in tension with a White pawn — penalise Black (raise White's score)
             score -= PAWN_TENSION_PENALTY; // Double negative = positive = penalises Black
+          }
+        }
+      }
+    }
+
+    return score;
+  }
+
+  /**
+   * Calculate the Pawn Break Vulnerability Map.
+   * 
+   * This extends the Pawn Tension concept by looking 2-4 moves into the future.
+   * If an opponent has a pawn on an adjacent file that can advance to attack
+   * our pawn, we apply a structural penalty based on how many moves away the break is.
+   * This forces the engine to proactively place pawns on squares where they cannot
+   * be undermined in the future, creating true structural fortresses.
+   */
+  evaluatePawnBreakVulnerability(board: Board): number {
+    let score = 0;
+
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece || piece.type !== PieceType.Pawn) continue;
+
+      const file = getFile(square);
+      const rank = getRank(square);
+      const isWhite = piece.color === Color.White;
+
+      for (const targetFile of [file - 1, file + 1]) {
+        if (targetFile < 0 || targetFile > 7) continue;
+
+        // Find the most advanced enemy pawn on the target file that hasn't passed us yet
+        let enemyPawnRank = -1;
+        
+        if (isWhite) {
+          // Look for Black pawns ahead of the White pawn
+          for (let r = rank + 2; r <= 6; r++) { // Start at rank+2 because rank+1 is direct tension
+            const targetSq = r * 8 + targetFile;
+            const targetPiece = board.getPiece(targetSq);
+            if (targetPiece && targetPiece.type === PieceType.Pawn && targetPiece.color === Color.Black) {
+              enemyPawnRank = r;
+              break; // Found the closest one
+            }
+          }
+        } else {
+          // Look for White pawns ahead of the Black pawn (lower ranks)
+          for (let r = rank - 2; r >= 1; r--) {
+            const targetSq = r * 8 + targetFile;
+            const targetPiece = board.getPiece(targetSq);
+            if (targetPiece && targetPiece.type === PieceType.Pawn && targetPiece.color === Color.White) {
+              enemyPawnRank = r;
+              break;
+            }
+          }
+        }
+
+        if (enemyPawnRank !== -1) {
+          // Calculate moves required for the enemy pawn to reach tension
+          const movesAway = isWhite ? (enemyPawnRank - rank - 1) : (rank - enemyPawnRank - 1);
+          
+          let penalty = 0;
+          if (movesAway === 1) penalty = -5;
+          else if (movesAway === 2) penalty = -3;
+          else if (movesAway === 3) penalty = -2;
+          else if (movesAway === 4) penalty = -1;
+
+          // Apply penalty symmetrically
+          if (isWhite) {
+            score += penalty; // Penalize White
+          } else {
+            score -= penalty; // Penalize Black (raise White's score)
           }
         }
       }

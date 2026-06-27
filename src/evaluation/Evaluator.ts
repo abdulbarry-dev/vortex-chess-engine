@@ -18,6 +18,7 @@ import { NnueEvaluator } from '../nnue/NnueEvaluator';
 import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
 import { BlockadeEvaluator } from './BlockadeEvaluator';
+import { FortressEvaluator } from './FortressEvaluator';
 
 
 /**
@@ -55,6 +56,7 @@ export class Evaluator {
   private readonly overextension: OverextensionEvaluator;
 
   private readonly blockade: BlockadeEvaluator;
+  private readonly fortress: FortressEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -77,6 +79,7 @@ export class Evaluator {
     this.overextension = new OverextensionEvaluator();
 
     this.blockade = new BlockadeEvaluator();
+    this.fortress = new FortressEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -207,7 +210,7 @@ export class Evaluator {
     // encouraging the losing side to steer into opposite-colored bishops or locked
     // chains to slash the evaluation deficit in half.
     if (Math.abs(finalScore) > 50) {
-      const fortressFactor = this.calculateFortressFactor(board, isEndgame);
+      const fortressFactor = this.fortress.evaluate(board, finalScore);
       finalScore = Math.round(finalScore * fortressFactor);
     }
 
@@ -346,100 +349,6 @@ export class Evaluator {
     // 2. Total material is low (both sides combined)
     return queenCount === 0 || totalMaterial < ENDGAME_MATERIAL_THRESHOLD;
   }
-
-  /**
-   * Calculates a factor between 0.0 and 1.0 to scale down the score if fortress conditions are met.
-   */
-  private calculateFortressFactor(board: Board, _isEndgame: boolean): number {
-    let factor = 1.0;
-    
-    // 1. Opposite Colored Bishops
-    let whiteBishops = 0;
-    let blackBishops = 0;
-    let whiteBishopSquare = -1;
-    let blackBishopSquare = -1;
-    
-    let otherPiecesCount = 0;
-
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      if (piece.type === PieceType.Bishop) {
-        if (piece.color === Color.White) {
-          whiteBishops++;
-          whiteBishopSquare = square;
-        } else {
-          blackBishops++;
-          blackBishopSquare = square;
-        }
-      } else if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
-        otherPiecesCount++;
-      }
-    }
-
-    const isLightSquare = (sq: number) => ((Math.floor(sq / 8) + (sq % 8)) % 2 !== 0);
-    const hasOppositeColoredBishops = 
-      whiteBishops === 1 && 
-      blackBishops === 1 && 
-      isLightSquare(whiteBishopSquare) !== isLightSquare(blackBishopSquare);
-
-    if (hasOppositeColoredBishops) {
-      factor *= 0.5; // Opposite colored bishops heavily drawish
-      if (otherPiecesCount === 0) {
-        factor *= 0.5; // Only bishops and pawns -> very high draw tendency
-      }
-    }
-
-    // 2. Locked pawn chains
-    let blockedPawns = 0;
-    let totalPawns = 0;
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      if (piece.type === PieceType.Pawn) {
-        totalPawns++;
-        const direction = piece.color === Color.White ? 1 : -1;
-        const advanceSquare = square + (direction * 8);
-        if (advanceSquare >= 0 && advanceSquare <= 63 && board.getPiece(advanceSquare) !== null) {
-          blockedPawns++;
-        }
-      }
-    }
-
-    if (totalPawns > 0) {
-      // If a large number of pawns are blocked, the position is closed/locked
-      if (blockedPawns >= 10) {
-        factor *= 0.5;
-      } else if (blockedPawns >= 6) {
-        factor *= 0.75;
-      }
-      
-      // 3. Lack of Open Files for heavy pieces
-      let openFiles = 0;
-      for (let file = 0; file < 8; file++) {
-        let hasPawns = false;
-        for (let sq = 0; sq < 64; sq++) {
-      const p = board.getPiece(sq);
-      if (!p) continue;
-          if (p.type === PieceType.Pawn && (sq % 8) === file) {
-            hasPawns = true;
-            break;
-          }
-        }
-        if (!hasPawns) openFiles++;
-      }
-      
-      // If there are no open files and many pawns are blocked, it is a very strong fortress
-      if (openFiles === 0 && blockedPawns >= 8) {
-        factor *= 0.4; // Extreme drawish tendency
-      } else if (openFiles <= 1 && blockedPawns >= 6) {
-        factor *= 0.6;
-      }
-    }
-
-    return factor;
-  }
-
 
   /**
    * Get evaluation components breakdown
