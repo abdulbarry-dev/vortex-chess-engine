@@ -123,24 +123,26 @@ export class KingSafetyEvaluator {
           shieldScore += PAWN_SHIELD_BONUS; 
           if (isCastled) {
             // King Shield Immutability: Penalize loosening the shield
-            shieldScore -= 15;
+            shieldScore -= 25; // Increased from -15
           }
         } else if (pawnRankOffset > 2) {
           // Pawn is pushed very far
           if (isCastled) {
-            // Overextension Detection: Pushing the king shield leaves the king hopelessly exposed
-            shieldScore -= 30; 
+            // Overextension Detection / King Safety Asymmetry:
+            // Pushing the king shield leaves the king hopelessly exposed.
+            // Massively penalize suicidal pawn storms.
+            shieldScore -= 120; // Increased from -30
           } else {
             // Uncastled king with advanced pawns
-            shieldScore -= 10;
+            shieldScore -= 20; // Increased from -10
           }
         }
       } else {
         // Missing pawn on this file
         if (isCastled) {
-          shieldScore -= 20; // Severe weakness
+          shieldScore -= 100; // Severe weakness, increased from -20
         } else {
-          shieldScore -= 5;
+          shieldScore -= 15; // Increased from -5
         }
       }
     }

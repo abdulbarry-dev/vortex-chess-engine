@@ -1,11 +1,11 @@
 /**
  * @file MobilityEvaluator.ts
- * @description Evaluate piece mobility (number of legal moves)
+ * @description Evaluate piece mobility (number of legal moves) and Piece Activity Poisoning
  */
 
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
-import { Color } from '../core/Piece';
+import { Color, PieceType } from '../core/Piece';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { getAttackedSquares } from '../move-generation/AttackDetector';
 
@@ -16,8 +16,9 @@ import { getAttackedSquares } from '../move-generation/AttackDetector';
 const MOBILITY_BONUS = 2; // Increased to prioritize Strategic Entropy
 
 /**
- * Evaluates piece mobility
- * More legal moves = better position (more options)
+ * Evaluates piece mobility and Piece Activity Poisoning (Karpov Constriction).
+ * More legal moves = better position (more options).
+ * Severely restricted advanced pieces incur a massive structural penalty.
  */
 export class MobilityEvaluator {
   private readonly moveGenerator: MoveGenerator;
@@ -27,7 +28,7 @@ export class MobilityEvaluator {
   }
 
   /**
-   * Evaluate mobility
+   * Evaluate mobility and constriction
    * Returns score from white's perspective
    * 
    * @param board Current board state
@@ -36,31 +37,32 @@ export class MobilityEvaluator {
    * @returns Mobility score in centipawns
    */
   evaluate(board: Board, state: GameState, isEndgame: boolean): number {
-    // Mobility is less important in endgame
-    const weight = isEndgame ? 0.5 : 1.0;
+    // Mobility is less important in endgame, but constriction remains critical
+    const mobilityWeight = isEndgame ? 0.5 : 1.0;
+    const constrictionWeight = isEndgame ? 1.5 : 1.0; // In endgames, a trapped piece is fatal
 
     let score = 0;
 
-    // Count safe moves for white
-    const whiteMoves = this.countSafeMoves(board, state, Color.White);
-    score += whiteMoves * MOBILITY_BONUS * weight;
+    const whiteEval = this.evaluateColorMobility(board, state, Color.White);
+    score += whiteEval.totalMobility * MOBILITY_BONUS * mobilityWeight;
+    score -= whiteEval.constrictionScore * constrictionWeight; // Penalize White for restricted pieces
 
-    // Count safe moves for black
-    const blackMoves = this.countSafeMoves(board, state, Color.Black);
-    score -= blackMoves * MOBILITY_BONUS * weight;
+    const blackEval = this.evaluateColorMobility(board, state, Color.Black);
+    score -= blackEval.totalMobility * MOBILITY_BONUS * mobilityWeight;
+    score += blackEval.constrictionScore * constrictionWeight; // Reward White for Black's restricted pieces
 
     return Math.round(score);
   }
 
   /**
-   * Count safe legal moves for a color (Strategic Entropy / Mobility Variance)
+   * Evaluate safe legal moves and calculate Karpov Constriction penalties
    * 
    * @param board Current board state
    * @param state Current game state
    * @param color Color to count moves for
-   * @returns Number of safe legal moves
+   * @returns Object containing total safe moves and the constriction penalty score
    */
-  private countSafeMoves(board: Board, state: GameState, color: Color): number {
+  private evaluateColorMobility(board: Board, state: GameState, color: Color): { totalMobility: number, constrictionScore: number } {
     // Temporarily switch turn
     const originalPlayer = state.currentPlayer;
     state.currentPlayer = color;
@@ -69,18 +71,58 @@ export class MobilityEvaluator {
     const opponentColor = color === Color.White ? Color.Black : Color.White;
     const attackedSquares = getAttackedSquares(board, opponentColor);
     
-    let safeMoves = 0;
+    // Track mobility per piece (using origin square as ID)
+    const pieceMobility = new Map<number, number>();
+    
+    // Initialize all minor/major pieces with 0 mobility so we can detect completely trapped pieces
+    for (let square = 0; square < 64; square++) {
+      const p = board.getPiece(square);
+      if (p && p.color === color && p.type !== PieceType.King && p.type !== PieceType.Pawn) {
+        pieceMobility.set(square, 0);
+      }
+    }
+    
+    let totalSafeMoves = 0;
     for (const move of moves) {
-      // Do not count King moves for mobility, as it encourages the King to walk out
-      if (move.piece.type === 6) continue; // PieceType.King is 6
+      // Do not count King moves for mobility
+      if (move.piece.type === PieceType.King) continue; 
       
+      // Only count safe moves (squares not attacked by the opponent)
       if ((attackedSquares & (1n << BigInt(move.to))) === 0n) {
-        safeMoves++;
+        totalSafeMoves++;
+        
+        if (move.piece.type !== PieceType.Pawn) {
+            const currentMobility = pieceMobility.get(move.from) || 0;
+            pieceMobility.set(move.from, currentMobility + 1);
+        }
+      }
+    }
+    
+    let constrictionScore = 0;
+    
+    // Karpov Constriction: Check for poisoned/trapped active pieces
+    for (const [square, mobility] of pieceMobility.entries()) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
+      
+      // Only consider Knights, Bishops, and Rooks
+      if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop || piece.type === PieceType.Rook) {
+        const rank = Math.floor(square / 8);
+        // A piece is "advanced" if it has left its first two ranks
+        const isAdvanced = color === Color.White ? rank >= 2 : rank <= 5; 
+        
+        if (isAdvanced && mobility <= 2) {
+            // Massive penalty for having an advanced piece with almost no safe moves
+            // This teaches the engine to suffocate enemy pieces (Karpov style)
+            if (mobility === 0) constrictionScore += 50;      // Completely trapped
+            else if (mobility === 1) constrictionScore += 30; // 1 safe square (highly vulnerable)
+            else if (mobility === 2) constrictionScore += 15; // 2 safe squares (constricted)
+        }
       }
     }
     
     // Restore turn
     state.currentPlayer = originalPlayer;
-    return safeMoves;
+    return { totalMobility: totalSafeMoves, constrictionScore };
   }
 }

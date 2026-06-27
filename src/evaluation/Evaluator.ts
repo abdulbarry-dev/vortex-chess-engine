@@ -160,8 +160,12 @@ export class Evaluator {
       finalScore -= 30; // Bonus for Black
     }
 
-    // Fortress Mode Trigger
-    if (Math.abs(finalScore) > 200) {
+    // Fortress Mode Trigger (Endgame Table Bias / Pawn Structure Fingerprinting)
+    // We trigger this much earlier (e.g., > 50cp) instead of > 200cp.
+    // This allows the engine to 'see' the drawn structure 15-20 moves in advance,
+    // encouraging the losing side to steer into opposite-colored bishops or locked
+    // chains to slash the evaluation deficit in half.
+    if (Math.abs(finalScore) > 50) {
       const fortressFactor = this.calculateFortressFactor(board, isEndgame);
       finalScore = Math.round(finalScore * fortressFactor);
     }
