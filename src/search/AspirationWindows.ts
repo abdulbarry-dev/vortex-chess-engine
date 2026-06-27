@@ -45,20 +45,26 @@ export class AspirationWindows {
     this.maxWindow = maxWindow;
   }
 
-  /**
-   * Calculate initial alpha-beta window around expected score.
-   * 
-   * @param expectedScore Score from previous iteration
-   * @param depth Current search depth
-   * @returns Object with alpha and beta values
-   */
   getInitialWindow(expectedScore: number, depth: number): { alpha: number; beta: number } {
     // Use wider window for shallow depths (less reliable scores)
     const windowSize = depth <= 4 ? this.initialWindow * 2 : this.initialWindow;
 
+    let lowerBound = windowSize;
+    let upperBound = windowSize;
+
+    // Defensive Aspiration Windows
+    // If the engine is objectively worse (negative score), it tightens the lower bound
+    // to catch sudden score drops immediately (triggering a re-search to find the flaw),
+    // but drastically widens the upper bound to accept unexpected defensive resources
+    // or blunders from the opponent without requiring a re-search.
+    if (expectedScore < -50) {
+      lowerBound = Math.max(10, windowSize - 30); // E.g., 20
+      upperBound = windowSize + 30;               // E.g., 80
+    }
+
     return {
-      alpha: expectedScore - windowSize,
-      beta: expectedScore + windowSize,
+      alpha: expectedScore - lowerBound,
+      beta: expectedScore + upperBound,
     };
   }
 

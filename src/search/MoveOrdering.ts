@@ -14,6 +14,7 @@ import {
   MVV_LVA_OFFSET,
   PROMOTION_SCORE,
   PROPHYLACTIC_MOVE_SCORE,
+  QUIET_DEFENSE_SCORE,
 } from '../constants/SearchConstants';
 import { staticExchangeEvaluation } from './StaticExchangeEvaluation';
 import { Board } from '../core/Board';
@@ -121,6 +122,24 @@ export class MoveOrderer {
     // 5. Castling
     if (move.flags & MoveFlags.Castle) {
       return CASTLING_SCORE;
+    }
+
+    // 5.5 Defensive Prophylaxis (Quiet Move Priority)
+    // Reward quiet moves that retreat or maneuver pieces into the King's defensive zone.
+    // Finding these prophylactic consolidation moves early improves alpha-beta cutoffs when defending.
+    if (!(move.flags & MoveFlags.Capture) && move.piece.type !== PieceType.Pawn && move.piece.type !== PieceType.King) {
+      const kingSq = board.findKing(move.piece.color);
+      if (kingSq !== null) {
+        const kingRank = Math.floor(kingSq / 8);
+        const kingFile = kingSq % 8;
+        const toRank = Math.floor(move.to / 8);
+        const toFile = move.to % 8;
+        
+        // If the piece lands in the 5x5 zone around the king
+        if (Math.abs(kingRank - toRank) <= 2 && Math.abs(kingFile - toFile) <= 2) {
+            return QUIET_DEFENSE_SCORE;
+        }
+      }
     }
 
     // 6. Quiet moves - history heuristic

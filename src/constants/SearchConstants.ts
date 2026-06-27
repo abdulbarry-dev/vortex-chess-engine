@@ -38,6 +38,7 @@ export const PROPHYLACTIC_MOVE_SCORE = 15000;
 export const HASH_MOVE_SCORE = 20000;
 export const PROMOTION_SCORE = 8000;
 export const CASTLING_SCORE = 100;
+export const QUIET_DEFENSE_SCORE = 8500;
 
 /**
  * Quiescence search constants
