@@ -19,6 +19,7 @@ import { MoveExecutor } from './core/MoveExecutor';
 import { parseFen } from './utils/FenParser';
 import { OpeningBook } from './opening/OpeningBook';
 import { ZobristHasher } from './search/ZobristHashing';
+import { VortexCore } from '../vortex-core/pkg/vortex_core.js';
 
 /**
  * UCI Protocol Implementation
@@ -32,6 +33,7 @@ class UciInterface {
   private openingBook: OpeningBook;
   private zobrist: ZobristHasher;
   private isSearching: boolean = false;
+  private core: any;
 
   constructor() {
     this.board = new Board();
@@ -41,6 +43,7 @@ class UciInterface {
     this.search = new SearchEngine(this.evaluator, this.generator);
     this.zobrist = new ZobristHasher();
     this.openingBook = new OpeningBook(this.zobrist);
+    this.core = new VortexCore();
     
     // Initialize to starting position
     this.newGame();
@@ -61,6 +64,21 @@ class UciInterface {
    */
   private send(message: string): void {
     console.log(message);
+  }
+
+  /**
+   * Sync TS Board state to Rust VortexCore
+   */
+  private syncToRust(): void {
+    this.core.reset_board();
+    this.core.set_side_to_move(this.state.currentPlayer === Color.White);
+    for (let sq = 0; sq < 64; sq++) {
+      const piece = this.board.getPiece(sq);
+      if (piece) {
+        const isWhite = piece.color === Color.White;
+        this.core.add_piece(isWhite, piece.type, sq);
+      }
+    }
   }
 
   /**
@@ -355,34 +373,35 @@ class UciInterface {
           }
         }
         
-        const result = this.search.findBestMove(this.board, this.state, depth, timeLimitMs);
+        this.syncToRust();
         
-        // Validate that we have a legal move
-        if (result.bestMove) {
-          // Double-check move is legal
-          const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
-          const isLegal = legalMoves.some(m => 
-            m.from === result.bestMove!.from && 
-            m.to === result.bestMove!.to &&
-            (!m.promotion || m.promotion === result.bestMove!.promotion)
-          );
-          
-          if (isLegal) {
-            const moveStr = this.moveToUci(result.bestMove);
-            this.send(`info depth ${result.depth || depth} score cp ${result.score} nodes ${result.nodes}`);
-            this.send(`bestmove ${moveStr}`);
-          } else {
-            this.send('info string Search returned illegal move');
-            // Return first legal move as fallback
-            if (legalMoves.length > 0 && legalMoves[0]) {
-              const moveStr = this.moveToUci(legalMoves[0]);
-              this.send(`bestmove ${moveStr}`);
-            } else {
-              this.send('bestmove 0000');
+        // Temporarily, we just call the WASM core for search!
+        // We will pass depth from UCI
+        const bestMoveU16 = this.core.search(depth);
+        
+        if (bestMoveU16 !== 0) {
+            const from = bestMoveU16 & 0x3F;
+            const to = (bestMoveU16 >> 6) & 0x3F;
+            const flag = bestMoveU16 >> 12;
+
+            const files = 'abcdefgh';
+            const ranks = '12345678';
+            const fromStr = files[from % 8] + ranks[Math.floor(from / 8)];
+            const toStr = files[to % 8] + ranks[Math.floor(to / 8)];
+            
+            let promoStr = '';
+            if (flag >= 8) {
+                if (flag === 8 || flag === 12) promoStr = 'n';
+                if (flag === 9 || flag === 13) promoStr = 'b';
+                if (flag === 10 || flag === 14) promoStr = 'r';
+                if (flag === 11 || flag === 15) promoStr = 'q';
             }
-          }
+            const moveStr = fromStr + toStr + promoStr;
+            
+            this.send(`info depth ${depth} string VortexCore (Rust) evaluation used`);
+            this.send(`bestmove ${moveStr}`);
         } else {
-          // No move found, return first legal move
+          // No move found, return first legal move (fallback)
           const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
           if (legalMoves.length > 0 && legalMoves[0]) {
             const moveStr = this.moveToUci(legalMoves[0]);
@@ -395,18 +414,7 @@ class UciInterface {
         if (error instanceof Error) {
           this.send(`info string Search error: ${error.message}`);
         }
-        // Try to return a legal move even on error
-        try {
-          const legalMoves = this.generator.generateLegalMoves(this.board, this.state);
-          if (legalMoves.length > 0 && legalMoves[0]) {
-            const moveStr = this.moveToUci(legalMoves[0]);
-            this.send(`bestmove ${moveStr}`);
-          } else {
-            this.send('bestmove 0000');
-          }
-        } catch {
-          this.send('bestmove 0000');
-        }
+        this.send('bestmove 0000');
       } finally {
         this.isSearching = false;
       }

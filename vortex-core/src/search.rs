@@ -22,7 +22,7 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
     ctrl.nodes += 1;
 
     if depth <= 0 {
-        return evaluate(&state); // Quiescence search should be called here
+        return quiescence_search(state, alpha, beta, tt, ctrl);
     }
 
     let hash = get_zobrist().compute_hash(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
@@ -165,4 +165,53 @@ fn is_in_check_color(state: &GameState, color: crate::types::Color) -> bool {
     if (pawn_attacks & pawns) != 0 { return true; }
 
     false
+}
+
+pub fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> i16 {
+    if ctrl.stop || ctrl.nodes > 2_000_000 {
+        return 0;
+    }
+    
+    ctrl.nodes += 1;
+    
+    let stand_pat = evaluate(&state);
+    if stand_pat >= beta {
+        return beta;
+    }
+    
+    if alpha < stand_pat {
+        alpha = stand_pat;
+    }
+    
+    let move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
+    
+    for i in 0..move_list.count {
+        let m = move_list.moves[i];
+        
+        // Only consider captures in QS
+        if !m.is_capture() && !m.is_promotion() {
+            continue;
+        }
+        
+        let mut next_state = state.clone();
+        next_state.make_move(m);
+        
+        // Filter illegal moves
+        let opp = next_state.side_to_move.opposite();
+        if is_in_check_color(&next_state, opp) {
+            continue; 
+        }
+        
+        let score = -quiescence_search(next_state, -beta, -alpha, tt, ctrl);
+        
+        if score >= beta {
+            return beta;
+        }
+        
+        if score > alpha {
+            alpha = score;
+        }
+    }
+    
+    alpha
 }
