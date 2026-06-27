@@ -1,0 +1,10 @@
+/home/vortex/Desktop/Projects/vortex-chess-engine/vortex-core/target/wasm32-unknown-unknown/release/deps/js_sys-89752063d04f9e22.d: /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/lib.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/mod.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/queue.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/task/singlethread.rs
+
+/home/vortex/Desktop/Projects/vortex-chess-engine/vortex-core/target/wasm32-unknown-unknown/release/deps/libjs_sys-89752063d04f9e22.rlib: /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/lib.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/mod.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/queue.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/task/singlethread.rs
+
+/home/vortex/Desktop/Projects/vortex-chess-engine/vortex-core/target/wasm32-unknown-unknown/release/deps/libjs_sys-89752063d04f9e22.rmeta: /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/lib.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/mod.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/queue.rs /home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/task/singlethread.rs
+
+/home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/lib.rs:
+/home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/mod.rs:
+/home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/queue.rs:
+/home/vortex/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/js-sys-0.3.103/src/futures/task/singlethread.rs:
