@@ -99,13 +99,19 @@ export class MobilityEvaluator {
     }
     
     let constrictionScore = 0;
+    let maxMobility = 0;
     
     // Karpov Constriction: Check for poisoned/trapped active pieces
     for (const [square, mobility] of pieceMobility.entries()) {
       const piece = board.getPiece(square);
       if (!piece) continue;
       
-      // Only consider Knights, Bishops, and Rooks
+      // Update max mobility for Ceiling Targeting
+      if (mobility > maxMobility) {
+         maxMobility = mobility;
+      }
+      
+      // Only consider Knights, Bishops, and Rooks for constriction
       if (piece.type === PieceType.Knight || piece.type === PieceType.Bishop || piece.type === PieceType.Rook) {
         const rank = Math.floor(square / 8);
         // A piece is "advanced" if it has left its first two ranks
@@ -121,8 +127,15 @@ export class MobilityEvaluator {
       }
     }
     
+    // Mobility Ceiling Targeting:
+    // Exponentially penalize the highest mobility piece. 
+    // This rewards moves that specifically suppress the opponent's most active piece,
+    // functionally removing it from the attack without trading.
+    const ceilingPenalty = Math.floor(Math.pow(maxMobility, 1.5) * 1.5);
+    const totalPenalty = constrictionScore + ceilingPenalty;
+    
     // Restore turn
     state.currentPlayer = originalPlayer;
-    return { totalMobility: totalSafeMoves, constrictionScore };
+    return { totalMobility: totalSafeMoves, constrictionScore: totalPenalty };
   }
 }

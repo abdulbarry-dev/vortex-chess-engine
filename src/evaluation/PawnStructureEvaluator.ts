@@ -54,10 +54,30 @@ export class PawnStructureEvaluator {
   private evaluateColor(board: Board, color: Color, isEndgame: boolean): number {
     let score = 0;
     const pawns = this.getPawns(board, color);
+    const enemyColor = color === Color.White ? Color.Black : Color.White;
+
+    let enemyLightBishop = false;
+    let enemyDarkBishop = false;
+    
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (piece && piece.color === enemyColor && piece.type === PieceType.Bishop) {
+        const isLight = ((Math.floor(square / 8) + (square % 8)) % 2 !== 0);
+        if (isLight) enemyLightBishop = true;
+        else enemyDarkBishop = true;
+      }
+    }
 
     // Analyze each pawn
     for (const square of pawns) {
       const file = getFile(square);
+      const isPawnLightSq = ((Math.floor(square / 8) + (square % 8)) % 2 !== 0);
+
+      // Color Complex Domination
+      // Reward placing pawns on the same color as the enemy bishop to restrict its scope.
+      if ((isPawnLightSq && enemyLightBishop) || (!isPawnLightSq && enemyDarkBishop)) {
+        score += 3; // +3cp per restricting pawn
+      }
 
       // Check for doubled pawns
       if (this.isDoubled(pawns, square, file)) {

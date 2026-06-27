@@ -34,12 +34,21 @@ export class KingSafetyEvaluator {
       return 0;
     }
 
-    let score = 0;
+    const whiteSafety = this.evaluateKingSafety(board, Color.White);
+    const blackSafety = this.evaluateKingSafety(board, Color.Black);
 
-    score += this.evaluateKingSafety(board, Color.White);
-    score -= this.evaluateKingSafety(board, Color.Black);
+    // King Safety Asymmetry:
+    // When your king has fewer safe squares than the opponent king, multiply the 
+    // king safety penalty for your king by 1.4. This makes the engine correctly 
+    // refuse counterattacks that expose your own king in exchange for attacking 
+    // the opponent's safer king.
+    if (whiteSafety < blackSafety) {
+      return (whiteSafety * 1.4) - blackSafety;
+    } else if (blackSafety < whiteSafety) {
+      return whiteSafety - (blackSafety * 1.4);
+    }
 
-    return score;
+    return whiteSafety - blackSafety;
   }
 
   /**
