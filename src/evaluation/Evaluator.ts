@@ -19,6 +19,7 @@ import { CoordinationEvaluator } from './CoordinationEvaluator';
 import { OverextensionEvaluator } from './OverextensionEvaluator';
 import { BlockadeEvaluator } from './BlockadeEvaluator';
 import { FortressEvaluator } from './FortressEvaluator';
+import { StructuralDangerEvaluator } from './StructuralDangerEvaluator';
 
 
 /**
@@ -57,6 +58,7 @@ export class Evaluator {
 
   private readonly blockade: BlockadeEvaluator;
   private readonly fortress: FortressEvaluator;
+  private readonly structuralDanger: StructuralDangerEvaluator;
   private readonly nnue: NnueEvaluator;
   
   /** Toggle NNUE evaluation */
@@ -80,6 +82,7 @@ export class Evaluator {
 
     this.blockade = new BlockadeEvaluator();
     this.fortress = new FortressEvaluator();
+    this.structuralDanger = new StructuralDangerEvaluator();
     this.nnue = new NnueEvaluator();
   }
 
@@ -198,6 +201,13 @@ export class Evaluator {
     }
 
     let finalScore = Math.round(score);
+
+    // Structural Danger Assessment (Proactive Defensive Mode)
+    // Applies an independent penalty based on structural features (passed pawns, king mobility, etc.)
+    // This allows the evaluation to drop below -50 and trigger defensive heuristics
+    // even if material is perfectly balanced.
+    const structuralDangerPenalty = this.structuralDanger.evaluate(board);
+    finalScore -= structuralDangerPenalty;
 
     // Kramnik's Berlin Heuristic
     if (queenCount === 0 && totalMaterial >= ENDGAME_MATERIAL_THRESHOLD) {

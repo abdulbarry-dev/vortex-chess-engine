@@ -4,12 +4,13 @@
  */
 
 import { CHECKMATE_SCORE, MAX_SEARCH_DEPTH } from '../constants/SearchConstants';
+import { PieceType } from '../core/Piece';
+import { Move, MoveFlags } from '../types/Move.types';
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
 import { Evaluator } from '../evaluation/Evaluator';
 import { isInCheck, isMoveLegal } from '../move-generation/LegalityChecker';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
-import { Move } from '../types/Move.types';
 import { SearchStats, TTEntryType } from '../types/Search.types';
 import { MoveExecutor } from '../core/MoveExecutor';
 
@@ -336,6 +337,37 @@ export class AlphaBetaSearch {
         }
       }
       
+      // Check for defensive structure moves
+      let isDefensiveRetreat = false;
+      if (!(move.flags & MoveFlags.Capture) && move.piece.type !== PieceType.Pawn && move.piece.type !== PieceType.King) {
+        const kingSq = board.findKing(state.currentPlayer);
+        if (kingSq !== null) {
+          const kingRank = Math.floor(kingSq / 8);
+          const kingFile = kingSq % 8;
+          const toRank = Math.floor(move.to / 8);
+          const toFile = move.to % 8;
+          if (Math.abs(kingRank - toRank) <= 2 && Math.abs(kingFile - toFile) <= 2) {
+            isDefensiveRetreat = true;
+          }
+        }
+      }
+
+      // Defensive Search Depth Adaptation
+      if (staticEval === null && depth >= 3) {
+        staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
+      }
+      
+      let isStructuralSacrifice = false;
+      if (staticEval !== null && staticEval < -50) {
+        if (isDefensiveRetreat && depth < MAX_SEARCH_DEPTH - 1) {
+          extension = Math.max(extension, 1); // Extra ply to verify defense holds
+        } else if ((move.flags & MoveFlags.Capture)) {
+          // Reduce depth slightly for captures when defending (more likely to be mistakes)
+          isStructuralSacrifice = true;
+          extension -= 1; // Direct depth reduction for structural sacrifices
+        }
+      }
+
       // Make move in place
       const history = MoveExecutor.makeMove(board, state, move);
 
@@ -373,7 +405,8 @@ export class AlphaBetaSearch {
         }
 
         // Search with reduced depth first
-        const reduction = (moveCount > 8 ? 2 : 1) + clusterPenalty;
+        let defensiveReduction = isStructuralSacrifice ? 1 : 0;
+        const reduction = (moveCount > 8 ? 2 : 1) + clusterPenalty + defensiveReduction;
         score = -this.search(board, state, depth - 1 + extension - reduction, -alpha - 1, -alpha, ply + 1);
         
         // If reduced search failed high, re-search at full depth
@@ -577,6 +610,13 @@ export class AlphaBetaSearch {
     
     const elapsed = Date.now() - this.startTime;
     return elapsed >= this.timeLimitMs;
+  }
+
+  /**
+   * Check if the search was stopped early (e.g. due to time limit)
+   */
+  hasStopped(): boolean {
+    return this.shouldStop();
   }
 
   /**

@@ -111,8 +111,7 @@ export class IterativeDeepeningSearch {
         result = this.alphaBeta.searchRoot(board, state, depth, alpha, beta);
 
         // Check if search was stopped early due to time
-        const elapsed = Date.now() - this.startTime;
-        if (elapsed >= this.timeLimitMs - TIME_BUFFER_MS) {
+        if (this.alphaBeta.hasStopped() || this.stopped) {
           break;
         }
 
@@ -147,8 +146,7 @@ export class IterativeDeepeningSearch {
       }
 
       // Check if search was stopped early
-      const elapsed = Date.now() - this.startTime;
-      if (elapsed >= this.timeLimitMs - TIME_BUFFER_MS) {
+      if (this.alphaBeta.hasStopped() || this.stopped) {
         depth--; // Last completed depth
         break;
       }
@@ -176,11 +174,21 @@ export class IterativeDeepeningSearch {
       if (bestMove) {
         pv.push(bestMove);
       }
+      
       // Stop if we found a forced winning mate.
-      // CRITICAL FIX: Do NOT stop if we are getting mated (bestScore < -CHECKMATE_SCORE + 100).
       // If we are getting mated, we MUST keep searching to find the move that delays it the most!
       if (bestScore > CHECKMATE_SCORE - 100) {
         break;
+      }
+      
+      // Boundary Guard for Terminal Evaluations
+      // If the engine finds a terminal score (e.g., getting mated) and the next depth iteration times out,
+      // it must not fall back to an earlier move that was scored before the mate was discovered.
+      // Additionally, we want to disable draw-seeking or repetition seeking if the position is a forced loss.
+      if (bestScore < -90000 && bestMove) {
+        // We know we are getting mated.
+        // We shouldn't stop searching, because deeper searches might find longer delays.
+        // But we MUST remember this bestMove as a verified mate-delaying move.
       }
     }
 

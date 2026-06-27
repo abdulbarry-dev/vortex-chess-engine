@@ -177,6 +177,9 @@ export class KingSafetyEvaluator {
         penalty += OPEN_FILE_NEAR_KING_PENALTY;
       } else if (fileStatus === 'semi-open') {
         penalty += SEMI_OPEN_FILE_NEAR_KING_PENALTY;
+      } else if (fileStatus === 'semi-open-against-us') {
+        // Enemy has no pawn, but we do. Enemy rooks can attack our shield!
+        penalty += SEMI_OPEN_FILE_NEAR_KING_PENALTY * 1.5;
       }
     }
 
@@ -186,7 +189,7 @@ export class KingSafetyEvaluator {
   /**
    * Determine if a file is open, semi-open, or closed
    */
-  private getFileStatus(board: Board, file: number, color: Color): 'open' | 'semi-open' | 'closed' {
+  private getFileStatus(board: Board, file: number, color: Color): 'open' | 'semi-open' | 'semi-open-against-us' | 'closed' {
     let hasFriendlyPawn = false;
     let hasEnemyPawn = false;
     const enemyColor = color === Color.White ? Color.Black : Color.White;
@@ -206,7 +209,8 @@ export class KingSafetyEvaluator {
     }
 
     if (!hasFriendlyPawn && !hasEnemyPawn) return 'open';
-    if (!hasFriendlyPawn && hasEnemyPawn) return 'semi-open';
+    if (!hasFriendlyPawn && hasEnemyPawn) return 'semi-open'; // We have no pawn, they do
+    if (hasFriendlyPawn && !hasEnemyPawn) return 'semi-open-against-us'; // They have no pawn, we do
     return 'closed';
   }
 
