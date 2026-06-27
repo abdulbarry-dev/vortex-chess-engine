@@ -76,4 +76,65 @@ describe('VortexCore WASM Integration', () => {
         const result = core.load_nnue(dummyBuffer);
         expect(result).toBe(true);
     });
+    it('should find Qc7 in the critical FEN (Move Ordering Test)', () => {
+        core.reset_board();
+        
+        // FEN: rn1qkbnr/4pppp/p1P5/5b2/Qp1P4/4PN2/PP3PPP/RNB1KB1R b KQkq - 0 8
+        // Black
+        core.add_piece(false, 4, 56); // a8
+        core.add_piece(false, 2, 57); // b8
+        core.add_piece(false, 5, 59); // d8
+        core.add_piece(false, 6, 60); // e8
+        core.add_piece(false, 3, 61); // f8
+        core.add_piece(false, 2, 62); // g8
+        core.add_piece(false, 4, 63); // h8
+        
+        core.add_piece(false, 1, 40); // a6
+        core.add_piece(false, 1, 25); // b4
+        core.add_piece(false, 1, 52); // e7
+        core.add_piece(false, 1, 53); // f7
+        core.add_piece(false, 1, 54); // g7
+        core.add_piece(false, 1, 55); // h7
+        core.add_piece(false, 3, 37); // f5
+
+        // White
+        core.add_piece(true, 4, 0); // a1
+        core.add_piece(true, 2, 1); // b1
+        core.add_piece(true, 3, 2); // c1
+        core.add_piece(true, 6, 4); // e1
+        core.add_piece(true, 3, 5); // f1
+        core.add_piece(true, 4, 7); // h1
+        
+        core.add_piece(true, 1, 8); // a2
+        core.add_piece(true, 1, 9); // b2
+        core.add_piece(true, 1, 13); // f2
+        core.add_piece(true, 1, 14); // g2
+        core.add_piece(true, 1, 15); // h2
+        core.add_piece(true, 1, 20); // e3
+        core.add_piece(true, 1, 27); // d4
+        core.add_piece(true, 1, 42); // c6
+        core.add_piece(true, 2, 21); // f3
+        core.add_piece(true, 5, 24); // a4
+        
+        core.set_side_to_move(false); // Black to move
+        
+        // Without move ordering, it blunders with b4b3
+        // With move ordering, it should find d8c7 (Qc7) or b8c6 at depth 4+
+        const bestMove = core.search(4);
+        
+        const from = bestMove & 0x3F;
+        const to = (bestMove >> 6) & 0x3F;
+        
+        const files = 'abcdefgh';
+        const ranks = '12345678';
+        const fromStr = files[from % 8] + ranks[Math.floor(from / 8)];
+        const toStr = files[to % 8] + ranks[Math.floor(to / 8)];
+        const moveStr = fromStr + toStr;
+        
+        // It must not play the blunder b4b3 (25 to 17)
+        expect(moveStr).not.toBe('b4b3');
+        
+        // It should prefer a developing/defending move like Qc7 (d8c7)
+        expect(['d8c7', 'b8c6', 'd8b6', 'f5b1'].includes(moveStr)).toBe(true);
+    });
 });

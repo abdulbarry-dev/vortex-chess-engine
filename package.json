@@ -19,7 +19,10 @@
     "test:self": "./scripts/self-test.sh",
     "test:performance": "tsx scripts/elo-test.ts",
     "tune": "tsx scripts/texel-tuning.ts",
-    "test:cutechess": "npm run build:all && cutechess-cli -engine cmd=\"$PWD/dist/cli.js\" name=\"Vortex\" -engine cmd=stockfish name=\"Stockfish\" option.\"Skill Level\"=5 -each proto=uci tc=40/60 -rounds 10 -repeat -pgnout games.pgn",
+    "test:cutechess": "npm run build:all && cutechess-cli -engine cmd=node arg=\"dist/cli.js\" name=\"Vortex\" -engine cmd=stockfish name=\"Stockfish\" option.\"Skill Level\"=5 -each proto=uci tc=40/60 -rounds 10 -repeat -pgnout games.pgn",
+    "play:cutechess": "cutechess-cli -engine cmd=node arg=\"dist/cli.js\" name=\"Vortex\" -engine cmd=stockfish name=\"Stockfish\" -each proto=uci tc=40/60",
+    "derby": "cutechess-cli -engine cmd=node arg=\"dist-v1/cli.js\" name=\"VORTEX-1.0\" -engine cmd=node arg=\"dist-v2/cli.js\" name=\"VORTEX-2.0\" -each proto=uci tc=40/60 -rounds 20 -repeat -pgnout derby.pgn",
+    "derby:quick": "cutechess-cli -engine cmd=node arg=\"dist-v1/cli.js\" name=\"VORTEX-1.0\" -engine cmd=node arg=\"dist-v2/cli.js\" name=\"VORTEX-2.0\" -each proto=uci tc=10+0.1 -rounds 100 -repeat -pgnout derby.pgn",
     "typecheck": "tsc --noEmit"
   },
   "repository": {

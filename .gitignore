@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+dist-v1/
+dist-v2/
 build/
 
 # Logs
@@ -30,16 +32,19 @@ Thumbs.db
 coverage/
 package-lock.json
 .github/
-# Test output files
+
+# Game output files
 *.pgn
+games/
+
+# Dataset files
+dataset/
 *.epd
-dataset.epd
-uho.epd
 
 # Temporary test files
 /tmp/vortex-test.txt
 
-# Beads / Dolt files (added by bd init)
+# Beads / Dolt files
 .dolt/
 *.db
 .beads-credential-key
@@ -58,14 +63,31 @@ stockfish.tar
 bin/
 play_match.py
 
-# Debug scripts
+# Debug scripts (root-level only)
 *debug*.ts
 test_eval.ts
+
+# Derby runner
+run-derby.sh
+
+# Version wrapper scripts
+vortex-v1.sh
+vortex-v2.sh
 
 # Misc tool folders
 .claude/
 .opencode/
 .beads/
 
-# Scripts
+# Scripts directory (everything except tracked files)
 scripts/
+!scripts/test-wasm.js
+
+# Rust build artifacts
+vortex-core/target/
+
+# External engine binary
+stockfish-bin
+
+# Windows launcher
+vortex.bat

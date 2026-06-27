@@ -27,6 +27,7 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
 
     let hash = get_zobrist().compute_hash(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
     
+    let mut tt_move = Move(0);
     if let Some(entry) = tt.probe(hash) {
         if entry.depth >= depth {
             if entry.bound == TT_EXACT {
@@ -39,6 +40,7 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
                 return beta;
             }
         }
+        tt_move = crate::move_core::Move(entry.best_move);
     }
 
     // Null Move Pruning (NMP)
@@ -56,7 +58,9 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
         }
     }
 
-    let move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
+    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
+    score_and_sort_moves(&mut move_list, &state, tt_move);
+    
     let mut best_score = -30000;
     let mut best_move = Move(0);
     let original_alpha = alpha;
@@ -183,7 +187,8 @@ pub fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut T
         alpha = stand_pat;
     }
     
-    let move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
+    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
+    score_and_sort_moves(&mut move_list, &state, Move(0));
     
     for i in 0..move_list.count {
         let m = move_list.moves[i];
@@ -215,3 +220,75 @@ pub fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut T
     
     alpha
 }
+
+fn score_and_sort_moves(move_list: &mut crate::movegen::MoveList, state: &GameState, tt_move: Move) {
+    let mut scores = [0i32; 256];
+    
+    for i in 0..move_list.count {
+        let m = move_list.moves[i];
+        if m == tt_move {
+            scores[i] = 1_000_000;
+        } else if m.is_capture() {
+            // MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+            let mut victim_val = 0;
+            let capture_sq = if m.flag() == crate::move_core::FLAG_EP_CAPTURE {
+                if state.side_to_move == crate::types::Color::White { m.to() - 8 } else { m.to() + 8 }
+            } else {
+                m.to()
+            };
+            
+            let them = state.side_to_move.opposite();
+            for pt in [crate::types::PieceType::Queen, crate::types::PieceType::Rook, crate::types::PieceType::Bishop, crate::types::PieceType::Knight, crate::types::PieceType::Pawn] {
+                if (state.board.get_pieces(them, pt) & (1u64 << capture_sq)) != 0 {
+                    victim_val = match pt {
+                        crate::types::PieceType::Queen => 5,
+                        crate::types::PieceType::Rook => 4,
+                        crate::types::PieceType::Bishop => 3,
+                        crate::types::PieceType::Knight => 3,
+                        crate::types::PieceType::Pawn => 1,
+                        _ => 0,
+                    };
+                    break;
+                }
+            }
+            
+            let mut attacker_val = 0;
+            for pt in [crate::types::PieceType::Pawn, crate::types::PieceType::Knight, crate::types::PieceType::Bishop, crate::types::PieceType::Rook, crate::types::PieceType::Queen, crate::types::PieceType::King] {
+                if (state.board.get_pieces(state.side_to_move, pt) & (1u64 << m.from())) != 0 {
+                    attacker_val = match pt {
+                        crate::types::PieceType::Pawn => 1,
+                        crate::types::PieceType::Knight => 3,
+                        crate::types::PieceType::Bishop => 3,
+                        crate::types::PieceType::Rook => 4,
+                        crate::types::PieceType::Queen => 5,
+                        crate::types::PieceType::King => 6,
+                        _ => 0,
+                    };
+                    break;
+                }
+            }
+            scores[i] = 100_000 + (victim_val * 100) - attacker_val;
+        } else if m.is_promotion() {
+            scores[i] = 90_000;
+        } else {
+            scores[i] = 0;
+        }
+    }
+    
+    // Simple selection sort (move_list is small)
+    for i in 0..move_list.count {
+        let mut best_idx = i;
+        let mut best_score = scores[i];
+        for j in (i + 1)..move_list.count {
+            if scores[j] > best_score {
+                best_score = scores[j];
+                best_idx = j;
+            }
+        }
+        if best_idx != i {
+            move_list.moves.swap(i, best_idx);
+            scores.swap(i, best_idx);
+        }
+    }
+}
+

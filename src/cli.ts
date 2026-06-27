@@ -386,9 +386,10 @@ class UciInterface {
 
             const files = 'abcdefgh';
             const ranks = '12345678';
-            const fromStr = files[from % 8] + ranks[Math.floor(from / 8)];
-            const toStr = files[to % 8] + ranks[Math.floor(to / 8)];
+            const fromStr = files[from % 8]! + ranks[Math.floor(from / 8)]!;
+            const toStr = files[to % 8]! + ranks[Math.floor(to / 8)]!;
             
+
             let promoStr = '';
             if (flag >= 8) {
                 if (flag === 8 || flag === 12) promoStr = 'n';

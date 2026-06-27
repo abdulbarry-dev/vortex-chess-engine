@@ -29,6 +29,7 @@ pub struct VortexCore {
     version: String,
     state: GameState,
     tt: TranspositionTable,
+    last_nodes: u32,
 }
 
 #[wasm_bindgen]
@@ -43,6 +44,7 @@ impl VortexCore {
             version: String::from("2.0.0-rust-alpha"),
             state: GameState::new(),
             tt: TranspositionTable::new(16), // 16 MB default
+            last_nodes: 0,
         }
     }
 
@@ -64,6 +66,11 @@ impl VortexCore {
     #[wasm_bindgen]
     pub fn get_version(&self) -> String {
         self.version.clone()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_last_nodes(&self) -> u32 {
+        self.last_nodes
     }
     
     // Some basic WASM wrappers to interact with the board from TypeScript
@@ -138,6 +145,9 @@ impl VortexCore {
         
         // Grab the best move from the root TT entry
         let hash = get_zobrist().compute_hash(&self.state.board, self.state.side_to_move, self.state.castling_rights, self.state.en_passant_sq);
+        
+        self.last_nodes = ctrl.nodes as u32;
+        
         if let Some(entry) = self.tt.probe(hash) {
             return entry.best_move;
         }

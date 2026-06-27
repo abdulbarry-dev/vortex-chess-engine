@@ -23,6 +23,22 @@ npm run typecheck   # tsc --noEmit (tsconfig excludes tests/)
 | `npm run build:all` | both of the above |
 | `npm run test:self` | (no-op — `scripts/self-test.sh` does not exist) |
 | `npm run test:performance` | `tsx scripts/elo-test.ts` (fails — `scripts/` missing) |
+| `npm run derby` | 20-round VORTEX-1.0 vs VORTEX-2.0 match at 40/60 |
+| `npm run derby:quick` | 100-round blitz match at 10+0.1 |
+
+## Running a derby match
+
+```bash
+npm run build:all        # builds VORTEX-2.0 to dist/
+cp -r dist dist-v2       # tag as VORTEX-2.0 build
+git stash                # save WIP on VORTEX-2.0
+git checkout VORTEX-1.0
+npm run build:all        # builds VORTEX-1.0 to dist/
+cp -r dist dist-v1       # tag as VORTEX-1.0 build
+git checkout VORTEX-2.0
+git stash pop            # restore WIP
+npm run derby            # run the match
+```
 
 ## Architecture
 

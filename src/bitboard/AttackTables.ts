@@ -5,7 +5,7 @@
  * Sliding piece attacks are computed on-the-fly using classical ray casting.
  */
 
-import { Color } from '../core/Piece';
+import { Color } from "../core/Piece";
 import {
   EMPTY_BB,
   FULL_BB,
@@ -14,7 +14,7 @@ import {
   NOT_FILE_GH,
   NOT_FILE_H,
   squareBB,
-} from './Bitboard';
+} from "./Bitboard";
 
 // ── Precomputed attack tables ───────────────────────────────────────────────
 
@@ -154,10 +154,10 @@ function castRay(sq: number, direction: number, occupancy: bigint): bigint {
  */
 export function getRookAttacks(sq: number, occupancy: bigint): bigint {
   return (
-    castRay(sq, 8, occupancy) |   // North
-    castRay(sq, -8, occupancy) |  // South
-    castRay(sq, 1, occupancy) |   // East
-    castRay(sq, -1, occupancy)    // West
+    castRay(sq, 8, occupancy) | // North
+    castRay(sq, -8, occupancy) | // South
+    castRay(sq, 1, occupancy) | // East
+    castRay(sq, -1, occupancy) // West
   );
 }
 
@@ -167,10 +167,10 @@ export function getRookAttacks(sq: number, occupancy: bigint): bigint {
  */
 export function getBishopAttacks(sq: number, occupancy: bigint): bigint {
   return (
-    castRay(sq, 9, occupancy) |   // NE
-    castRay(sq, 7, occupancy) |   // NW
-    castRay(sq, -7, occupancy) |  // SE
-    castRay(sq, -9, occupancy)    // SW
+    castRay(sq, 9, occupancy) | // NE
+    castRay(sq, 7, occupancy) | // NW
+    castRay(sq, -7, occupancy) | // SE
+    castRay(sq, -9, occupancy) // SW
   );
 }
 
