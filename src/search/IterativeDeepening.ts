@@ -176,9 +176,10 @@ export class IterativeDeepeningSearch {
       if (bestMove) {
         pv.push(bestMove);
       }
-
-      // Stop if we found a mate
-      if (Math.abs(bestScore) > CHECKMATE_SCORE - 100) {
+      // Stop if we found a forced winning mate.
+      // CRITICAL FIX: Do NOT stop if we are getting mated (bestScore < -CHECKMATE_SCORE + 100).
+      // If we are getting mated, we MUST keep searching to find the move that delays it the most!
+      if (bestScore > CHECKMATE_SCORE - 100) {
         break;
       }
     }

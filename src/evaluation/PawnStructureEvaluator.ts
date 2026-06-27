@@ -59,13 +59,11 @@ export class PawnStructureEvaluator {
     let enemyLightBishop = false;
     let enemyDarkBishop = false;
     
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (piece && piece.color === enemyColor && piece.type === PieceType.Bishop) {
-        const isLight = ((Math.floor(square / 8) + (square % 8)) % 2 !== 0);
-        if (isLight) enemyLightBishop = true;
-        else enemyDarkBishop = true;
-      }
+    const enemyBishops = board.findPieces(PieceType.Bishop, enemyColor);
+    for (const square of enemyBishops) {
+      const isLight = ((Math.floor(square / 8) + (square % 8)) % 2 !== 0);
+      if (isLight) enemyLightBishop = true;
+      else enemyDarkBishop = true;
     }
 
     // Analyze each pawn
@@ -147,21 +145,8 @@ export class PawnStructureEvaluator {
     return score;
   }
 
-  /**
-   * Get all pawn positions for a color
-   */
   private getPawns(board: Board, color: Color): Square[] {
-    const pawns: Square[] = [];
-
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      if (piece.type === PieceType.Pawn && piece.color === color) {
-        pawns.push(square);
-      }
-    }
-
-    return pawns;
+    return board.findPieces(PieceType.Pawn, color);
   }
 
   /**
@@ -306,41 +291,38 @@ export class PawnStructureEvaluator {
     const PAWN_TENSION_PENALTY = -10; // centipawns per tense pawn pair
     let score = 0;
 
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      if (piece.type !== PieceType.Pawn) continue;
-
+    const whitePawns = board.findPieces(PieceType.Pawn, Color.White);
+    for (const square of whitePawns) {
       const file = getFile(square);
       const rank = getRank(square);
 
-      if (piece.color === Color.White) {
-        // A White pawn on (rank, file) attacks (rank+1, file-1) and (rank+1, file+1)
-        for (const targetFile of [file - 1, file + 1]) {
-          if (targetFile < 0 || targetFile > 7) continue;
-          const targetRank = rank + 1;
-          if (targetRank > 7) continue;
-          const targetSq = targetRank * 8 + targetFile;
-          const target = board.getPiece(targetSq);
+      for (const targetFile of [file - 1, file + 1]) {
+        if (targetFile < 0 || targetFile > 7) continue;
+        const targetRank = rank + 1;
+        if (targetRank > 7) continue;
+        const targetSq = targetRank * 8 + targetFile;
+        const target = board.getPiece(targetSq);
 
-          if (target && target.type === PieceType.Pawn && target.color === Color.Black) {
-            // White pawn in tension with a Black pawn — penalise White
-            score += PAWN_TENSION_PENALTY;
-          }
+        if (target && target.type === PieceType.Pawn && target.color === Color.Black) {
+          score += PAWN_TENSION_PENALTY;
         }
-      } else {
-        // A Black pawn on (rank, file) attacks (rank-1, file-1) and (rank-1, file+1)
-        for (const targetFile of [file - 1, file + 1]) {
-          if (targetFile < 0 || targetFile > 7) continue;
-          const targetRank = rank - 1;
-          if (targetRank < 0) continue;
-          const targetSq = targetRank * 8 + targetFile;
-          const target = board.getPiece(targetSq);
+      }
+    }
 
-          if (target && target.type === PieceType.Pawn && target.color === Color.White) {
-            // Black pawn in tension with a White pawn — penalise Black (raise White's score)
-            score -= PAWN_TENSION_PENALTY; // Double negative = positive = penalises Black
-          }
+    const blackPawns = board.findPieces(PieceType.Pawn, Color.Black);
+    for (const square of blackPawns) {
+      const file = getFile(square);
+      const rank = getRank(square);
+
+      for (const targetFile of [file - 1, file + 1]) {
+        if (targetFile < 0 || targetFile > 7) continue;
+        const targetRank = rank - 1;
+        if (targetRank < 0) continue;
+        const targetSq = targetRank * 8 + targetFile;
+        const target = board.getPiece(targetSq);
+
+        if (target && target.type === PieceType.Pawn && target.color === Color.White) {
+          score -= PAWN_TENSION_PENALTY;
         }
       }
     }
@@ -359,33 +341,29 @@ export class PawnStructureEvaluator {
    */
   evaluatePawnBreakVulnerability(board: Board): number {
     let score = 0;
+    
+    const whitePawns = board.findPieces(PieceType.Pawn, Color.White);
+    const blackPawns = board.findPieces(PieceType.Pawn, Color.Black);
 
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece || piece.type !== PieceType.Pawn) continue;
-
+    const checkVulnerability = (square: Square, isWhite: boolean) => {
       const file = getFile(square);
       const rank = getRank(square);
-      const isWhite = piece.color === Color.White;
 
       for (const targetFile of [file - 1, file + 1]) {
         if (targetFile < 0 || targetFile > 7) continue;
 
-        // Find the most advanced enemy pawn on the target file that hasn't passed us yet
         let enemyPawnRank = -1;
         
         if (isWhite) {
-          // Look for Black pawns ahead of the White pawn
-          for (let r = rank + 2; r <= 6; r++) { // Start at rank+2 because rank+1 is direct tension
+          for (let r = rank + 2; r <= 6; r++) {
             const targetSq = r * 8 + targetFile;
             const targetPiece = board.getPiece(targetSq);
             if (targetPiece && targetPiece.type === PieceType.Pawn && targetPiece.color === Color.Black) {
               enemyPawnRank = r;
-              break; // Found the closest one
+              break;
             }
           }
         } else {
-          // Look for White pawns ahead of the Black pawn (lower ranks)
           for (let r = rank - 2; r >= 1; r--) {
             const targetSq = r * 8 + targetFile;
             const targetPiece = board.getPiece(targetSq);
@@ -397,7 +375,6 @@ export class PawnStructureEvaluator {
         }
 
         if (enemyPawnRank !== -1) {
-          // Calculate moves required for the enemy pawn to reach tension
           const movesAway = isWhite ? (enemyPawnRank - rank - 1) : (rank - enemyPawnRank - 1);
           
           let penalty = 0;
@@ -406,15 +383,17 @@ export class PawnStructureEvaluator {
           else if (movesAway === 3) penalty = -2;
           else if (movesAway === 4) penalty = -1;
 
-          // Apply penalty symmetrically
           if (isWhite) {
-            score += penalty; // Penalize White
+            score += penalty;
           } else {
-            score -= penalty; // Penalize Black (raise White's score)
+            score -= penalty;
           }
         }
       }
-    }
+    };
+
+    for (const sq of whitePawns) checkVulnerability(sq, true);
+    for (const sq of blackPawns) checkVulnerability(sq, false);
 
     return score;
   }

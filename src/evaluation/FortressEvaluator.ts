@@ -37,36 +37,19 @@ export class FortressEvaluator {
     return factor;
   }
 
-  /**
-   * 1. Opposite Colored Bishops Fortress
-   * When each side has only one bishop and they are on opposite colors,
-   * the position is highly drawish, especially with fewer pieces.
-   */
   private evaluateOppositeColoredBishops(board: Board): number {
-    let whiteBishops = 0, blackBishops = 0;
-    let whiteBishopSquare = -1, blackBishopSquare = -1;
+    const whiteBishops = board.findPieces(PieceType.Bishop, Color.White);
+    const blackBishops = board.findPieces(PieceType.Bishop, Color.Black);
+    
     let otherPiecesCount = 0;
-
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      
-      if (piece.type === PieceType.Bishop) {
-        if (piece.color === Color.White) {
-          whiteBishops++;
-          whiteBishopSquare = square;
-        } else {
-          blackBishops++;
-          blackBishopSquare = square;
-        }
-      } else if (piece.type !== PieceType.Pawn && piece.type !== PieceType.King) {
-        otherPiecesCount++;
-      }
+    for (const type of [PieceType.Knight, PieceType.Rook, PieceType.Queen]) {
+        otherPiecesCount += board.countPieces(type, Color.White);
+        otherPiecesCount += board.countPieces(type, Color.Black);
     }
 
     const isLightSquare = (sq: number) => ((Math.floor(sq / 8) + (sq % 8)) % 2 !== 0);
-    const hasOCB = whiteBishops === 1 && blackBishops === 1 && 
-                   isLightSquare(whiteBishopSquare) !== isLightSquare(blackBishopSquare);
+    const hasOCB = whiteBishops.length === 1 && blackBishops.length === 1 && 
+                   isLightSquare(whiteBishops[0]!) !== isLightSquare(blackBishops[0]!);
 
     if (hasOCB) {
       let factor = 0.5; // Base opposite-colored bishop drawishness
@@ -78,44 +61,39 @@ export class FortressEvaluator {
     return 1.0;
   }
 
-  /**
-   * 2. Locked Pawn Chain Fortress
-   * Positions with heavily blocked pawns and no open files are extremely drawish.
-   */
   private evaluateLockedPawnChains(board: Board): number {
     let blockedPawns = 0;
-    let totalPawns = 0;
-    let factor = 1.0;
+    
+    const whitePawns = board.findPieces(PieceType.Pawn, Color.White);
+    const blackPawns = board.findPieces(PieceType.Pawn, Color.Black);
+    const totalPawns = whitePawns.length + blackPawns.length;
 
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece || piece.type !== PieceType.Pawn) continue;
-      
-      totalPawns++;
-      const direction = piece.color === Color.White ? 1 : -1;
-      const advanceSquare = square + (direction * 8);
-      
-      if (advanceSquare >= 0 && advanceSquare <= 63 && board.getPiece(advanceSquare) !== null) {
+    const fileHasPawn = [false, false, false, false, false, false, false, false];
+
+    for (const square of whitePawns) {
+      fileHasPawn[getFile(square)] = true;
+      const advanceSquare = square + 8;
+      if (advanceSquare <= 63 && !board.isEmpty(advanceSquare)) {
+        blockedPawns++;
+      }
+    }
+    for (const square of blackPawns) {
+      fileHasPawn[getFile(square)] = true;
+      const advanceSquare = square - 8;
+      if (advanceSquare >= 0 && !board.isEmpty(advanceSquare)) {
         blockedPawns++;
       }
     }
 
+    let factor = 1.0;
     if (totalPawns > 0) {
       if (blockedPawns >= 10) factor *= 0.5;
       else if (blockedPawns >= 6) factor *= 0.75;
       
       // Check for lack of open files
       let openFiles = 0;
-      for (let file = 0; file < 8; file++) {
-        let hasPawns = false;
-        for (let sq = 0; sq < 64; sq++) {
-          const p = board.getPiece(sq);
-          if (p && p.type === PieceType.Pawn && getFile(sq) === file) {
-            hasPawns = true;
-            break;
-          }
-        }
-        if (!hasPawns) openFiles++;
+      for (let i = 0; i < 8; i++) {
+        if (!fileHasPawn[i]) openFiles++;
       }
       
       if (openFiles === 0 && blockedPawns >= 8) factor *= 0.4;
@@ -125,30 +103,14 @@ export class FortressEvaluator {
     return factor;
   }
 
-  /**
-   * 3. Rook-Endgame Fortress (Boxed King)
-   * A common drawing technique where the defending king is boxed in a corner
-   * or edge, safely protected by pawns, and the attacker's king cannot penetrate.
-   */
   private evaluateRookFortress(board: Board, isWhiteLosing: boolean): number {
-    let whiteRooks = 0, blackRooks = 0;
+    const whiteRooks = board.countPieces(PieceType.Rook, Color.White);
+    const blackRooks = board.countPieces(PieceType.Rook, Color.Black);
+
     let otherPiecesCount = 0;
-
-    let whiteKingSq = -1, blackKingSq = -1;
-
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      
-      if (piece.type === PieceType.King) {
-        if (piece.color === Color.White) whiteKingSq = square;
-        else blackKingSq = square;
-      } else if (piece.type === PieceType.Rook) {
-        if (piece.color === Color.White) whiteRooks++;
-        else blackRooks++;
-      } else if (piece.type !== PieceType.Pawn) {
-        otherPiecesCount++;
-      }
+    for (const type of [PieceType.Knight, PieceType.Bishop, PieceType.Queen]) {
+        otherPiecesCount += board.countPieces(type, Color.White);
+        otherPiecesCount += board.countPieces(type, Color.Black);
     }
 
     // Must be a pure rook endgame (or minor pieces already traded)
@@ -157,7 +119,9 @@ export class FortressEvaluator {
     }
 
     let factor = 1.0;
-    const defendingKingSq = isWhiteLosing ? whiteKingSq : blackKingSq;
+    const defendingKingSq = board.findKing(isWhiteLosing ? Color.White : Color.Black);
+    if (defendingKingSq === null) return 1.0;
+    
     const defendingKingFile = getFile(defendingKingSq);
     const defendingKingRank = getRank(defendingKingSq);
     
@@ -175,47 +139,37 @@ export class FortressEvaluator {
     return factor;
   }
 
-  /**
-   * 4. Drawish Endgame Patterns & Pawn Structure Fingerprinting
-   * Identifies pawn structures that inherently lead to draws, projecting
-   * endgame evaluation back into the middlegame.
-   */
   private evaluateDrawishEndgamePatterns(board: Board): number {
     let factor = 1.0;
     
-    let whitePawns = 0, blackPawns = 0;
+    const whitePawns = board.findPieces(PieceType.Pawn, Color.White);
+    const blackPawns = board.findPieces(PieceType.Pawn, Color.Black);
+    const totalPawns = whitePawns.length + blackPawns.length;
+    
     let minPawnFile = 8, maxPawnFile = -1;
-    let pieceCount = 0;
-
-    for (let square = 0; square < 64; square++) {
-      const piece = board.getPiece(square);
-      if (!piece) continue;
-      
-      if (piece.type === PieceType.Pawn) {
-        if (piece.color === Color.White) whitePawns++;
-        else blackPawns++;
-        
-        const f = getFile(square);
+    for (const sq of whitePawns) {
+        const f = getFile(sq);
         if (f < minPawnFile) minPawnFile = f;
         if (f > maxPawnFile) maxPawnFile = f;
-      } else if (piece.type !== PieceType.King) {
-        pieceCount++;
-      }
+    }
+    for (const sq of blackPawns) {
+        const f = getFile(sq);
+        if (f < minPawnFile) minPawnFile = f;
+        if (f > maxPawnFile) maxPawnFile = f;
     }
 
-    const totalPawns = whitePawns + blackPawns;
+    let pieceCount = 0;
+    for (const type of [PieceType.Knight, PieceType.Bishop, PieceType.Rook, PieceType.Queen]) {
+        pieceCount += board.countPieces(type, Color.White);
+        pieceCount += board.countPieces(type, Color.Black);
+    }
 
-    // Pawn Structure Fingerprint: All pawns on one side of the board.
-    // If all pawns span 4 or fewer files (e.g. only f, g, h pawns exist),
-    // the position is extremely drawish because the superior side cannot
-    // stretch the defense across the board to create passed pawns.
     if (totalPawns > 0 && totalPawns <= 6) {
       const pawnSpan = maxPawnFile - minPawnFile;
       if (pawnSpan <= 3) {
-        // The fewer pieces on the board, the stronger this fingerprint becomes.
-        if (pieceCount <= 2) factor *= 0.5;      // Pure endgame (e.g. Rook vs Rook)
-        else if (pieceCount <= 4) factor *= 0.7; // Late middlegame (e.g. R+Minor vs R+Minor)
-        else factor *= 0.85;                     // Middlegame (forces engine to avoid this structure when losing)
+        if (pieceCount <= 2) factor *= 0.5;
+        else if (pieceCount <= 4) factor *= 0.7;
+        else factor *= 0.85;
       }
     }
 
