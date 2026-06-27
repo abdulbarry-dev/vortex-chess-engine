@@ -10,6 +10,7 @@ pub mod tt;
 pub mod state;
 pub mod evaluate;
 pub mod search;
+pub mod nnue;
 
 use wasm_bindgen::prelude::*;
 use crate::board::Board;
@@ -21,6 +22,7 @@ use crate::zobrist::{init_zobrist, get_zobrist};
 use crate::tt::TranspositionTable;
 use crate::state::GameState;
 use crate::search::{search_position, SearchControl};
+use crate::nnue::{init_nnue_empty, load_nnue_buffer};
 
 #[wasm_bindgen]
 pub struct VortexCore {
@@ -36,6 +38,7 @@ impl VortexCore {
         init_magics();
         init_step_attacks();
         init_zobrist();
+        init_nnue_empty();
         VortexCore {
             version: String::from("2.0.0-rust-alpha"),
             state: GameState::new(),
@@ -51,6 +54,11 @@ impl VortexCore {
     #[wasm_bindgen]
     pub fn set_side_to_move(&mut self, is_white: bool) {
         self.state.side_to_move = if is_white { Color::White } else { Color::Black };
+    }
+
+    #[wasm_bindgen]
+    pub fn load_nnue(&self, buffer: &[u8]) -> bool {
+        load_nnue_buffer(buffer)
     }
 
     #[wasm_bindgen]
