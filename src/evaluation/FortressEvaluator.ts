@@ -32,6 +32,7 @@ export class FortressEvaluator {
     factor *= this.evaluateOppositeColoredBishops(board);
     factor *= this.evaluateLockedPawnChains(board);
     factor *= this.evaluateRookFortress(board, isWhiteLosing);
+    factor *= this.evaluateDrawishEndgamePatterns(board);
 
     return factor;
   }
@@ -169,6 +170,53 @@ export class FortressEvaluator {
       // Defending King is in a corner. If they have a rook to cut off the enemy king,
       // this is highly drawish.
       factor *= 0.6;
+    }
+
+    return factor;
+  }
+
+  /**
+   * 4. Drawish Endgame Patterns & Pawn Structure Fingerprinting
+   * Identifies pawn structures that inherently lead to draws, projecting
+   * endgame evaluation back into the middlegame.
+   */
+  private evaluateDrawishEndgamePatterns(board: Board): number {
+    let factor = 1.0;
+    
+    let whitePawns = 0, blackPawns = 0;
+    let minPawnFile = 8, maxPawnFile = -1;
+    let pieceCount = 0;
+
+    for (let square = 0; square < 64; square++) {
+      const piece = board.getPiece(square);
+      if (!piece) continue;
+      
+      if (piece.type === PieceType.Pawn) {
+        if (piece.color === Color.White) whitePawns++;
+        else blackPawns++;
+        
+        const f = getFile(square);
+        if (f < minPawnFile) minPawnFile = f;
+        if (f > maxPawnFile) maxPawnFile = f;
+      } else if (piece.type !== PieceType.King) {
+        pieceCount++;
+      }
+    }
+
+    const totalPawns = whitePawns + blackPawns;
+
+    // Pawn Structure Fingerprint: All pawns on one side of the board.
+    // If all pawns span 4 or fewer files (e.g. only f, g, h pawns exist),
+    // the position is extremely drawish because the superior side cannot
+    // stretch the defense across the board to create passed pawns.
+    if (totalPawns > 0 && totalPawns <= 6) {
+      const pawnSpan = maxPawnFile - minPawnFile;
+      if (pawnSpan <= 3) {
+        // The fewer pieces on the board, the stronger this fingerprint becomes.
+        if (pieceCount <= 2) factor *= 0.5;      // Pure endgame (e.g. Rook vs Rook)
+        else if (pieceCount <= 4) factor *= 0.7; // Late middlegame (e.g. R+Minor vs R+Minor)
+        else factor *= 0.85;                     // Middlegame (forces engine to avoid this structure when losing)
+      }
     }
 
     return factor;
