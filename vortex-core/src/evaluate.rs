@@ -1,9 +1,9 @@
 use crate::state::GameState;
-use crate::types::{Color, PieceType, Square};
-use crate::bitboard::{count_bits, pop_lsb, Bitboard, EMPTY};
+use crate::types::{Color, PieceType};
+use crate::bitboard::{count_bits, pop_lsb, EMPTY};
 use crate::nnue::{Accumulator, refresh_accumulator, evaluate_nnue, is_nnue_loaded};
 use crate::magic::{get_bishop_attacks, get_rook_attacks};
-use crate::attacks::{get_knight_attacks, get_king_attacks};
+use crate::attacks::get_knight_attacks;
 
 const PAWN_VAL: i16 = 100;
 const KNIGHT_VAL: i16 = 320;
@@ -267,11 +267,9 @@ fn evaluate_king_safety(state: &GameState, color: Color) -> i16 {
     
     for f in min_file..=max_file {
         let file_mask = 0x0101010101010101u64 << f;
-        let mut shield_found = false;
         
         let file_our_pawns = our_pawns & file_mask;
         if file_our_pawns != 0 {
-            shield_found = true;
             safety += 10; // PAWN_SHIELD_BONUS
         }
         
@@ -291,7 +289,7 @@ fn evaluate_mobility(state: &GameState, color: Color) -> i16 {
     let our_pieces = state.board.occupancies[color as usize];
     let all_pieces = state.board.occupancies[2];
     
-    for pt in [PieceType::Knight, PieceType::Bishop, PieceType::Rook] {
+    for pt in [PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen] {
         let mut bb = state.board.get_pieces(color, pt);
         while bb != EMPTY {
             let sq = pop_lsb(&mut bb) as usize;
@@ -299,6 +297,7 @@ fn evaluate_mobility(state: &GameState, color: Color) -> i16 {
                 PieceType::Knight => get_knight_attacks(sq as u8),
                 PieceType::Bishop => get_bishop_attacks(sq as u8, all_pieces),
                 PieceType::Rook => get_rook_attacks(sq as u8, all_pieces),
+                PieceType::Queen => get_bishop_attacks(sq as u8, all_pieces) | get_rook_attacks(sq as u8, all_pieces),
                 _ => 0,
             };
             
@@ -338,6 +337,9 @@ fn evaluate_blockade(state: &GameState) -> i16 {
             if b_sq == w_sq + 8 {
                 locked_files += 1;
             }
+            if w_sq == b_sq + 8 {
+                locked_files -= 1;
+            }
         }
     }
     
@@ -350,7 +352,8 @@ fn evaluate_blockade(state: &GameState) -> i16 {
 }
 
 fn tablebase_magnetism(state: &GameState, score: i16) -> i16 {
-    if score.abs() < 50 { return 0; }
+    let score_abs = if score == i16::MIN { i16::MAX } else { score.abs() };
+    if score_abs < 50 { return 0; }
     
     let mut total_pieces = 0;
     let mut non_pawn_pieces = 0;
@@ -367,7 +370,7 @@ fn tablebase_magnetism(state: &GameState, score: i16) -> i16 {
         bonus += 50;
     }
     
-    bonus = bonus.min((score.abs() as f32 * 0.5) as i16);
+    bonus = bonus.min((score_abs as f32 * 0.5) as i16);
     
     if score < -50 {
         bonus
@@ -379,7 +382,8 @@ fn tablebase_magnetism(state: &GameState, score: i16) -> i16 {
 }
 
 fn fortress_scale(state: &GameState, score: i16) -> i16 {
-    if score.abs() < 50 { return score; }
+    let score_abs = if score == i16::MIN { i16::MAX } else { score.abs() };
+    if score_abs < 50 { return score; }
     
     let mut factor = 1.0;
     let w_bishops = state.board.get_pieces(Color::White, PieceType::Bishop);

@@ -1,6 +1,6 @@
 use crate::nnue::accumulator::{PstAccumulator, ThreatAccumulator, ThreatDelta};
 use crate::nnue::weights::WEIGHTS;
-use crate::types::{Color, PieceType, Square, FT_SIZE};
+use crate::types::{Color, PieceType, Square};
 
 #[derive(Clone, Copy)]
 pub struct IncrementalNetwork {

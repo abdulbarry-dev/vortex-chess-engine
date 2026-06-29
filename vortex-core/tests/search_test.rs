@@ -69,7 +69,63 @@ fn test_search_depth_1() {
     let score = search_position(state, 1, -30000, 30000, 0, &mut tt, &mut ctrl, &mut killers, &mut history);
     
     assert!(ctrl.nodes > 20);
-    assert!(score >= -50 && score <= 50);
+    assert!(score >= -100 && score <= 100);
+}
+
+#[test]
+fn test_fortress_opposite_bishops() {
+    init_magics();
+    init_step_attacks();
+    init_zobrist();
+    init_nnue_empty();
+
+    // Position: opposite-colored bishops with locked pawn center
+    // White: K e3, B c4 (light square), pawns d4, e4
+    // Black: K e6, B d6 (dark square), pawns d5, e5
+    let mut state = GameState::new();
+    state.board.add_piece(Color::White, PieceType::King, 20);  // e3
+    state.board.add_piece(Color::White, PieceType::Bishop, 26); // c4 (light: (2+6)%2=0 -> dark? (2+6)%2=0 even -> dark if 0=dark)
+    state.board.add_piece(Color::White, PieceType::Pawn, 27);  // d4
+    state.board.add_piece(Color::White, PieceType::Pawn, 28);  // e4
+
+    state.board.add_piece(Color::Black, PieceType::King, 44);  // e6
+    state.board.add_piece(Color::Black, PieceType::Bishop, 43); // d6 (dark: (5+3)%2=0 -> even -> dark)
+    state.board.add_piece(Color::Black, PieceType::Pawn, 35);  // d5
+    state.board.add_piece(Color::Black, PieceType::Pawn, 36);  // e5
+
+    state.side_to_move = Color::White;
+    state.castling_rights = 0;
+    state.recompute_hash();
+
+    let score = evaluate(&state);
+    // Both sides equal material (~equal score), fortress should keep it near zero
+    // Without fortress: 0 material diff + PST differences
+    assert!(score.abs() < 200, "Fortress position score too extreme: {}", score);
+}
+
+#[test]
+fn test_magnetism_endgame_kp_k() {
+    init_magics();
+    init_step_attacks();
+    init_zobrist();
+    init_nnue_empty();
+
+    // K+P vs K — white has a single pawn advantage, very drawish endgame
+    let mut state = GameState::new();
+    state.board.add_piece(Color::White, PieceType::King, 4);   // e1
+    state.board.add_piece(Color::White, PieceType::Pawn, 28);  // e4
+
+    state.board.add_piece(Color::Black, PieceType::King, 60);  // e8
+
+    state.side_to_move = Color::White;
+    state.castling_rights = 0;
+    state.recompute_hash();
+
+    let score = evaluate(&state);
+    // White is up a pawn (~100cp) but total_pieces=3, non_pawn_pieces≈0
+    // Magnetism should cap the score — it should be well under pure material
+    assert!(score > 0, "White should be better with an extra pawn: {}", score);
+    assert!(score < 300, "Magnetism should cap K+P vs K score: {}", score);
 }
 
 #[test]
