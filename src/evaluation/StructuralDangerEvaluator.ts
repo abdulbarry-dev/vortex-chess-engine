@@ -28,6 +28,41 @@ export class StructuralDangerEvaluator {
     return penalty;
   }
 
+  /**
+   * Get defensive urgency level independent of material score.
+   * Returns 0-3: 0 = safe, 1 = cautious, 2 = defensive, 3 = critical.
+   * Used by the search to trigger defensive extensions and time allocation
+   * even when material is balanced.
+   */
+  getDangerLevel(board: Board): number {
+    let level = 0;
+
+    // King exposure
+    const wKing = board.findKing(Color.White);
+    const bKing = board.findKing(Color.Black);
+    if (wKing !== null) {
+      const wRank = Math.floor(wKing / 8);
+      if (wRank >= 2) level += 1; // White king not safely castled
+    }
+    if (bKing !== null) {
+      const bRank = Math.floor(bKing / 8);
+      if (bRank <= 5) level += 1; // Black king not safely castled
+    }
+
+    // Exposed king mobility (king in open has limited safe squares)
+    const wKingMob = this.evaluateKingMobility(board, Color.White);
+    const bKingMob = this.evaluateKingMobility(board, Color.Black);
+    if (wKingMob > 0) level += 1;
+    if (bKingMob > 0) level += 1;
+
+    // Advanced passed pawns
+    const wPassed = this.evaluatePassedPawns(board, Color.White);
+    const bPassed = this.evaluatePassedPawns(board, Color.Black);
+    if (wPassed >= 80 || bPassed >= 80) level += 1;
+
+    return Math.min(level, 3);
+  }
+
   private evaluateKingMobility(board: Board, color: Color): number {
     const kingSquare = board.findKing(color);
     if (kingSquare === null) return 0;

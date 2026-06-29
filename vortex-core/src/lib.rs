@@ -138,6 +138,17 @@ impl VortexCore {
     }
 
     #[wasm_bindgen]
+    pub fn evaluate(&mut self) -> i16 {
+        self.state.recompute_hash();
+        crate::evaluate::evaluate(&self.state)
+    }
+
+    #[wasm_bindgen]
+    pub fn structural_danger(&self) -> u8 {
+        crate::evaluate::structural_danger(&self.state)
+    }
+
+    #[wasm_bindgen]
     pub fn search(&mut self, depth: i8, time_limit_ms: u64) -> u16 {
         self.state.recompute_hash();
         let mut ctrl = SearchControl {

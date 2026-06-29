@@ -124,6 +124,9 @@ class UciInterface {
       case 'setoption':
         this.handleSetOption(parts.slice(1));
         break;
+      case 'eval':
+        this.handleEval();
+        break;
       case 'd':
       case 'display':
         this.handleDisplay();
@@ -501,6 +504,44 @@ class UciInterface {
         // TODO: Implement multi-PV
         break;
     }
+  }
+
+  /**
+   * Handle 'eval' command (non-UCI, for diagnostics)
+   * Outputs detailed evaluation breakdown and WDL estimate.
+   */
+  private handleEval(): void {
+    const breakdown = this.evaluator.getEvaluationBreakdown(this.board, this.state);
+
+    const wdl = this.computeWdl(breakdown.total);
+
+    this.send(`info string Evaluation Breakdown (White's perspective):`);
+    this.send(`info string   Material:        ${breakdown.material.toFixed(1)} cp`);
+    this.send(`info string   Piece-Square:    ${breakdown.pieceSquare.toFixed(1)} cp`);
+    this.send(`info string   Pawn Structure:  ${breakdown.pawnStructure.toFixed(1)} cp`);
+    this.send(`info string   King Safety:     ${breakdown.kingSafety.toFixed(1)} cp`);
+    this.send(`info string   Mobility:        ${breakdown.mobility.toFixed(1)} cp`);
+    this.send(`info string   Coordination:    ${breakdown.coordination.toFixed(1)} cp`);
+    this.send(`info string   Total:           ${breakdown.total} cp`);
+    this.send(`info string   WDL:             ${wdl.win}% / ${wdl.draw}% / ${wdl.loss}%`);
+  }
+
+  /**
+   * Compute WDL (Win-Draw-Loss) probabilities from centipawn score.
+   * Uses a simplified logistic model: P(win) = 1 / (1 + 10^(-score/K))
+   * where K ≈ 400 in middlegame, 300 in endgame.
+   */
+  private computeWdl(scoreCp: number): { win: number; draw: number; loss: number } {
+    const k = 350; // middlegame/endgame average
+    const winProb = 1 / (1 + Math.pow(10, -scoreCp / k));
+    const lossProb = 1 / (1 + Math.pow(10, scoreCp / k));
+    const drawProb = 1 - winProb - lossProb;
+
+    return {
+      win: Math.round(winProb * 100),
+      draw: Math.round(Math.max(0, drawProb) * 100),
+      loss: Math.round(lossProb * 100),
+    };
   }
 
   /**

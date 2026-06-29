@@ -148,6 +148,16 @@ export class IterativeDeepeningSearch {
       // Check if search was stopped early
       if (this.alphaBeta.hasStopped() || this.stopped) {
         depth--; // Last completed depth
+
+        // Boundary Guard for Terminal Evaluations:
+        // If the partial search discovered a forced mate (winning or losing),
+        // preserve that knowledge across timeouts so we don't fall back to a
+        // non-mate-aware move from a shallower depth.
+        if (result && result.move && Math.abs(result.score) > CHECKMATE_SCORE - 200) {
+          bestMove = result.move;
+          bestScore = result.score;
+        }
+
         break;
       }
 
@@ -181,15 +191,6 @@ export class IterativeDeepeningSearch {
         break;
       }
       
-      // Boundary Guard for Terminal Evaluations
-      // If the engine finds a terminal score (e.g., getting mated) and the next depth iteration times out,
-      // it must not fall back to an earlier move that was scored before the mate was discovered.
-      // Additionally, we want to disable draw-seeking or repetition seeking if the position is a forced loss.
-      if (bestScore < -90000 && bestMove) {
-        // We know we are getting mated.
-        // We shouldn't stop searching, because deeper searches might find longer delays.
-        // But we MUST remember this bestMove as a verified mate-delaying move.
-      }
     }
 
     const timeMs = Date.now() - this.startTime;

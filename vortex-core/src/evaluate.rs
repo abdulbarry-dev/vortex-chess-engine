@@ -84,6 +84,35 @@ const KING_END_TABLE: [i16; 64] = [
 
 const PASSED_PAWN_BONUS: [i16; 8] = [0, 10, 20, 35, 60, 100, 150, 0];
 
+pub fn structural_danger(state: &GameState) -> u8 {
+    let mut level = 0u8;
+
+    let w_king_bb = state.board.get_pieces(Color::White, PieceType::King);
+    let b_king_bb = state.board.get_pieces(Color::Black, PieceType::King);
+
+    // King exposure
+    if w_king_bb != EMPTY {
+        let sq = w_king_bb.trailing_zeros() as usize;
+        let rank = sq / 8;
+        if rank >= 2 { level += 1; }
+    }
+    if b_king_bb != EMPTY {
+        let sq = b_king_bb.trailing_zeros() as usize;
+        let rank = sq / 8;
+        if rank <= 5 { level += 1; }
+    }
+
+    // Advanced passed pawns
+    let w_pawns = state.board.get_pieces(Color::White, PieceType::Pawn);
+    let b_pawns = state.board.get_pieces(Color::Black, PieceType::Pawn);
+    let b_passed_advanced = (b_pawns & 0x00FFFF0000000000) != 0;
+    let w_passed_advanced = (w_pawns & 0x00000000FFFF0000) != 0;
+    if b_passed_advanced { level += 1; }
+    if w_passed_advanced { level += 1; }
+
+    level.min(3)
+}
+
 pub fn evaluate(state: &GameState) -> i16 {
     let mut score = 0;
 

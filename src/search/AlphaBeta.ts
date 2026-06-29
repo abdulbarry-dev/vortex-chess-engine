@@ -9,6 +9,7 @@ import { Move, MoveFlags } from '../types/Move.types';
 import { Board } from '../core/Board';
 import { GameState } from '../core/GameState';
 import { Evaluator } from '../evaluation/Evaluator';
+import { StructuralDangerEvaluator } from '../evaluation/StructuralDangerEvaluator';
 import { isInCheck, isMoveLegal } from '../move-generation/LegalityChecker';
 import { MoveGenerator } from '../move-generation/MoveGenerator';
 import { SearchStats, TTEntryType } from '../types/Search.types';
@@ -38,6 +39,7 @@ export class AlphaBetaSearch {
   private timeLimitMs: number = Infinity;
   private stopped: boolean = false;
   private currentVolatility: number = 0;
+  private structuralDanger: StructuralDangerEvaluator;
 
   constructor(
     evaluator: Evaluator,
@@ -52,6 +54,7 @@ export class AlphaBetaSearch {
     this.transpositionTable = transpositionTable;
     this.zobristHasher = zobristHasher;
     this.nullMovePruning = new NullMovePruning();
+    this.structuralDanger = new StructuralDangerEvaluator();
     this.stats = this.createEmptyStats();
   }
 
@@ -357,8 +360,14 @@ export class AlphaBetaSearch {
         staticEval = this.evaluator.evaluate(board, state, this.currentVolatility) * state.currentPlayer;
       }
       
+      // Decoupled defensive activation: use structural danger level independently
+      // of the material/positional score. This activates proactive search extensions
+      // even when material is perfectly balanced.
+      const dangerLevel = this.structuralDanger.getDangerLevel(board);
+
       let isStructuralSacrifice = false;
-      if (staticEval !== null && staticEval < -50) {
+      const needsDefense = (staticEval !== null && staticEval < -50) || dangerLevel >= 2;
+      if (needsDefense) {
         if (isDefensiveRetreat && depth < MAX_SEARCH_DEPTH - 1) {
           extension = Math.max(extension, 1); // Extra ply to verify defense holds
         } else if ((move.flags & MoveFlags.Capture)) {
@@ -366,6 +375,11 @@ export class AlphaBetaSearch {
           isStructuralSacrifice = true;
           extension -= 1; // Direct depth reduction for structural sacrifices
         }
+      }
+
+      // Critical danger: always extend defensive retreats regardless of score
+      if (dangerLevel >= 3 && isDefensiveRetreat && depth < MAX_SEARCH_DEPTH - 1) {
+        extension = Math.max(extension, 2); // Extra plies to find the right defensive setup
       }
 
       // Make move in place
