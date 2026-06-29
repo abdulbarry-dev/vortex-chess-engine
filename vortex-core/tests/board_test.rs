@@ -1,5 +1,5 @@
 use vortex_core::board::Board;
-use vortex_core::types::{Color, PieceType, Square};
+use vortex_core::types::{Color, PieceType};
 use vortex_core::movegen::generate_pseudo_legal_moves;
 use vortex_core::magic::init_magics;
 use vortex_core::attacks::init_step_attacks;
@@ -44,7 +44,7 @@ fn test_pseudo_legal_movegen() {
     init_step_attacks();
     let mut board = Board::new();
     setup_startpos(&mut board);
-    let moves = generate_pseudo_legal_moves(&board, Color::White);
+    let moves = generate_pseudo_legal_moves(&board, Color::White, 0xF, None);
     
     // 16 pawn moves (each pawn can move 1 or 2 squares) and 4 knight moves
     assert_eq!(moves.count, 20);

@@ -1,16 +1,14 @@
 use crate::state::GameState;
-use crate::types::{Color, PieceType, Square};
+use crate::types::{Color, PieceType};
 use crate::bitboard::{count_bits, EMPTY};
-use crate::nnue::{Accumulator, refresh_accumulator, evaluate_nnue, NNUE};
+use crate::nnue::{Accumulator, refresh_accumulator, evaluate_nnue, is_nnue_loaded};
 
-// Basic Piece Values
 const PAWN_VAL: i16 = 100;
 const KNIGHT_VAL: i16 = 320;
 const BISHOP_VAL: i16 = 330;
 const ROOK_VAL: i16 = 500;
 const QUEEN_VAL: i16 = 900;
 
-// Central control PST (simple)
 const CENTER_BONUS: [i16; 64] = [
     -10, -10, -10, -10, -10, -10, -10, -10,
     -10,   0,   0,   0,   0,   0,   0, -10,
@@ -22,24 +20,19 @@ const CENTER_BONUS: [i16; 64] = [
     -10, -10, -10, -10, -10, -10, -10, -10,
 ];
 
-// Defensive heuristics
 pub fn evaluate(state: &GameState) -> i16 {
-    // Attempt NNUE eval first
-    unsafe {
-        if NNUE.is_loaded {
-            let mut acc = Accumulator::new();
-            refresh_accumulator(state, &mut acc);
-            return evaluate_nnue(state, &acc);
-        }
+    let mut acc = Accumulator::new();
+    refresh_accumulator(state, &mut acc);
+    let nnue_score = evaluate_nnue(state, &acc);
+    if is_nnue_loaded() {
+        return nnue_score;
     }
     
     let mut score = 0;
     
-    // 1. Material & Central Control
     score += evaluate_pieces(state, Color::White);
     score -= evaluate_pieces(state, Color::Black);
     
-    // 2. King Safety & Prophylaxis (Defensive Phase 0 Port)
     score += evaluate_king_safety(state, Color::White) - evaluate_king_safety(state, Color::Black);
     score += evaluate_pawn_structure(state, Color::White) - evaluate_pawn_structure(state, Color::Black);
 
@@ -70,7 +63,6 @@ fn evaluate_pieces(state: &GameState, color: Color) -> i16 {
             let sq = bb.trailing_zeros() as usize;
             bb &= bb - 1;
             
-            // Mirror square for Black
             let index = if color == Color::White {
                 (7 - (sq / 8)) * 8 + (sq % 8)
             } else {
@@ -85,7 +77,6 @@ fn evaluate_pieces(state: &GameState, color: Color) -> i16 {
     score
 }
 
-// Port of Phase 0 King Safety (semi-open files near king)
 fn evaluate_king_safety(state: &GameState, color: Color) -> i16 {
     let king_bb = state.board.get_pieces(color, PieceType::King);
     if king_bb == EMPTY { return 0; }
@@ -98,28 +89,24 @@ fn evaluate_king_safety(state: &GameState, color: Color) -> i16 {
     let our_pawns = state.board.get_pieces(color, PieceType::Pawn);
     let their_pawns = state.board.get_pieces(them, PieceType::Pawn);
     
-    // Check files around the king (file-1, file, file+1)
     let min_file = if king_file > 0 { king_file - 1 } else { 0 };
     let max_file = if king_file < 7 { king_file + 1 } else { 7 };
     
     for f in min_file..=max_file {
         let file_mask = 0x0101010101010101u64 << f;
         
-        // Semi-open file penalty (opponent has no pawn there)
         if (their_pawns & file_mask) == EMPTY {
-            safety -= 15; // Vulnerable to rook attacks
+            safety -= 15;
         }
         
-        // Open file penalty (no pawns at all)
         if (our_pawns & file_mask) == EMPTY && (their_pawns & file_mask) == EMPTY {
-            safety -= 30; // Highly dangerous for the king
+            safety -= 30;
         }
     }
     
     safety
 }
 
-// Port of Phase 0 Prophylaxis / Pawn Structure (Overextension)
 fn evaluate_pawn_structure(state: &GameState, color: Color) -> i16 {
     let mut score = 0;
     let mut pawns = state.board.get_pieces(color, PieceType::Pawn);
@@ -131,9 +118,7 @@ fn evaluate_pawn_structure(state: &GameState, color: Color) -> i16 {
         let rank = sq / 8;
         let relative_rank = if color == Color::White { rank } else { 7 - rank };
         
-        // Penalize overextended pawns in the endgame/middlegame if unsupported
         if relative_rank >= 5 {
-            // A simple heuristic for Vortex: overextending is bad defensively unless it's a passed pawn
             score -= 10;
         }
     }

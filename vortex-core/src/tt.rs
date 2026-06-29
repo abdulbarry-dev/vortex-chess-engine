@@ -12,6 +12,7 @@ pub struct TTEntry {
     pub best_move: u16,
     pub depth: i8,
     pub bound: u8,
+    pub age: u8,
 }
 
 impl Default for TTEntry {
@@ -22,22 +23,22 @@ impl Default for TTEntry {
             best_move: 0,
             depth: 0,
             bound: 0,
+            age: 0,
         }
     }
 }
 
 pub struct TranspositionTable {
     entries: Vec<[TTEntry; 2]>,
-    size: usize, // mask for index
+    size: usize,
+    age: u8,
 }
 
 impl TranspositionTable {
-    // Size in megabytes
     pub fn new(size_mb: usize) -> Self {
         let entry_size = std::mem::size_of::<[TTEntry; 2]>();
         let num_entries = (size_mb * 1024 * 1024) / entry_size;
         
-        // Find nearest power of 2 for fast masking
         let mut n = 1;
         while n <= num_entries {
             n <<= 1;
@@ -47,6 +48,7 @@ impl TranspositionTable {
         Self {
             entries: vec![[TTEntry::default(); 2]; n],
             size: n - 1,
+            age: 0,
         }
     }
 
@@ -55,6 +57,10 @@ impl TranspositionTable {
             bucket[0] = TTEntry::default();
             bucket[1] = TTEntry::default();
         }
+    }
+
+    pub fn new_search(&mut self) {
+        self.age = self.age.wrapping_add(1);
     }
 
     #[inline(always)]
@@ -75,25 +81,31 @@ impl TranspositionTable {
         let index = (key as usize) & self.size;
         let bucket = &mut self.entries[index];
 
-        // Tier 0: Depth-preferred replacement
-        if bucket[0].key == 0 || bucket[0].key == key || depth >= bucket[0].depth {
-            bucket[0] = TTEntry {
-                key,
-                score,
-                best_move: best_move.0,
-                depth,
-                bound,
-            };
-            return;
-        }
-
-        // Tier 1: Always-replace (latest)
-        bucket[1] = TTEntry {
+        let new_entry = TTEntry {
             key,
             score,
             best_move: best_move.0,
             depth,
             bound,
+            age: self.age,
         };
+
+        if bucket[0].key == key || bucket[0].key == 0 {
+            bucket[0] = new_entry;
+            return;
+        }
+        if bucket[1].key == key || bucket[1].key == 0 {
+            bucket[1] = new_entry;
+            return;
+        }
+
+        let replace0 = if depth > bucket[0].depth { 2 } else { bucket[0].age.wrapping_sub(self.age) as i16 };
+        let replace1 = if depth > bucket[1].depth { 2 } else { bucket[1].age.wrapping_sub(self.age) as i16 };
+
+        if replace0 >= replace1 {
+            bucket[0] = new_entry;
+        } else {
+            bucket[1] = new_entry;
+        }
     }
 }

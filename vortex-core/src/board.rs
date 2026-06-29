@@ -61,4 +61,14 @@ impl Board {
     pub fn get_pieces(&self, color: Color, pt: PieceType) -> Bitboard {
         self.pieces[Self::color_index(color)][Self::piece_index(pt)]
     }
+
+    /// Calculate standard non-pawn material for game phase
+    pub fn non_pawn_material(&self, color: Color) -> i32 {
+        let n = self.get_pieces(color, PieceType::Knight).count_ones() as i32;
+        let b = self.get_pieces(color, PieceType::Bishop).count_ones() as i32;
+        let r = self.get_pieces(color, PieceType::Rook).count_ones() as i32;
+        let q = self.get_pieces(color, PieceType::Queen).count_ones() as i32;
+        
+        n * 320 + b * 330 + r * 500 + q * 900
+    }
 }

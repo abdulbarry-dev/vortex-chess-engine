@@ -79,6 +79,15 @@ class UciInterface {
         this.core.add_piece(isWhite, piece.type, sq);
       }
     }
+    const cr = this.state.castlingRights;
+    const rights =
+      (cr.white.kingSide ? 0x01 : 0) |
+      (cr.white.queenSide ? 0x02 : 0) |
+      (cr.black.kingSide ? 0x04 : 0) |
+      (cr.black.queenSide ? 0x08 : 0);
+    this.core.set_castling_rights(rights);
+    const ep = this.state.enPassantSquare;
+    this.core.set_en_passant_sq(ep !== null ? ep : -1);
   }
 
   /**
@@ -375,9 +384,9 @@ class UciInterface {
         
         this.syncToRust();
         
-        // Temporarily, we just call the WASM core for search!
-        // We will pass depth from UCI
-        const bestMoveU16 = this.core.search(depth);
+        // Call WASM core search with depth and time limit
+        const timeLimit = timeLimitMs || 5000;
+        const bestMoveU16 = this.core.search(depth, BigInt(timeLimit));
         
         if (bestMoveU16 !== 0) {
             const from = bestMoveU16 & 0x3F;

@@ -1,16 +1,18 @@
-use crate::types::{Color, PieceType, Square};
+use crate::types::{Color, PieceType};
 use crate::board::Board;
+use std::sync::OnceLock;
 
 pub struct Zobrist {
-    pub piece_keys: [[[u64; 64]; 6]; 2], // [Color][PieceType][Square]
+    pub piece_keys: [[[u64; 64]; 6]; 2],
     pub side_to_move_key: u64,
     pub castling_keys: [u64; 16],
-    pub en_passant_keys: [u64; 8], // file only
+    pub en_passant_keys: [u64; 8],
 }
+
+static ZOBRIST: OnceLock<Zobrist> = OnceLock::new();
 
 impl Zobrist {
     pub fn new() -> Self {
-        // We use a deterministic PRNG to ensure reproducible hashes across restarts
         let mut seed: u64 = 0x98f107;
         let mut rand = || -> u64 {
             seed ^= seed << 13;
@@ -47,7 +49,7 @@ impl Zobrist {
         z
     }
 
-    pub fn compute_hash(&self, board: &Board, side: Color, castling_rights: u8, en_passant_file: Option<u8>) -> u64 {
+    pub fn compute_hash(&self, board: &Board, side: Color, castling_rights: u8, en_passant_sq: Option<u8>) -> u64 {
         let mut h = 0;
         
         for c in [Color::White, Color::Black] {
@@ -57,7 +59,7 @@ impl Zobrist {
                 let mut bb = board.pieces[c_idx][p_idx];
                 while bb != 0 {
                     let sq = bb.trailing_zeros() as usize;
-                    bb &= bb - 1; // pop LSB
+                    bb &= bb - 1;
                     h ^= self.piece_keys[c_idx][p_idx][sq];
                 }
             }
@@ -69,25 +71,19 @@ impl Zobrist {
 
         h ^= self.castling_keys[castling_rights as usize];
 
-        if let Some(file) = en_passant_file {
-            h ^= self.en_passant_keys[file as usize];
+        if let Some(sq) = en_passant_sq {
+            h ^= self.en_passant_keys[(sq % 8) as usize];
         }
 
         h
     }
 }
 
-pub static mut ZOBRIST: Option<Zobrist> = None;
-
 pub fn init_zobrist() {
-    unsafe {
-        if ZOBRIST.is_none() {
-            ZOBRIST = Some(Zobrist::new());
-        }
-    }
+    ZOBRIST.get_or_init(|| Zobrist::new());
 }
 
 #[inline(always)]
 pub fn get_zobrist() -> &'static Zobrist {
-    unsafe { ZOBRIST.as_ref().unwrap() }
+    ZOBRIST.get().unwrap()
 }

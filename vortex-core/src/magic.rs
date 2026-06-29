@@ -1,5 +1,6 @@
 use crate::bitboard::{Bitboard, set_bit, test_bit, EMPTY};
 use crate::types::Square;
+use std::sync::OnceLock;
 
 #[derive(Copy, Clone)]
 pub struct Magic {
@@ -9,16 +10,15 @@ pub struct Magic {
     pub offset: usize,
 }
 
-const ROOK_TABLE_SIZE: usize = 102400;
-const BISHOP_TABLE_SIZE: usize = 5248; // 64 * 512 is 32768, but we pack them
+struct MagicTables {
+    rook_magics: [Magic; 64],
+    bishop_magics: [Magic; 64],
+    rook_attacks: Vec<Bitboard>,
+    bishop_attacks: Vec<Bitboard>,
+}
 
-pub static mut ROOK_MAGICS: [Magic; 64] = [Magic { mask: 0, magic: 0, shift: 0, offset: 0 }; 64];
-pub static mut BISHOP_MAGICS: [Magic; 64] = [Magic { mask: 0, magic: 0, shift: 0, offset: 0 }; 64];
+static TABLES: OnceLock<MagicTables> = OnceLock::new();
 
-pub static mut ROOK_ATTACKS: [Bitboard; ROOK_TABLE_SIZE] = [0; ROOK_TABLE_SIZE];
-pub static mut BISHOP_ATTACKS: [Bitboard; 524288] = [0; 524288]; // Use a safe upper bound
-
-// Slow ray-casting for initialization
 fn sliding_attack_slow(sq: Square, occ: Bitboard, is_rook: bool) -> Bitboard {
     let mut attacks = EMPTY;
     let rank = sq / 8;
@@ -46,20 +46,17 @@ fn sliding_attack_slow(sq: Square, occ: Bitboard, is_rook: bool) -> Bitboard {
     attacks
 }
 
-// Generate the mask of relevant blockers
 fn generate_mask(sq: Square, is_rook: bool) -> Bitboard {
     let mut mask = sliding_attack_slow(sq, EMPTY, is_rook);
     let rank = sq / 8;
     let file = sq % 8;
 
     if is_rook {
-        // Exclude the outer edges unless the piece is on that edge
         if rank != 0 { mask &= !0x00000000000000FF; }
         if rank != 7 { mask &= !0xFF00000000000000; }
         if file != 0 { mask &= !0x0101010101010101; }
         if file != 7 { mask &= !0x8080808080808080; }
     } else {
-        // Exclude all outer edges for bishop
         mask &= !0xFF00000000000000;
         mask &= !0x00000000000000FF;
         mask &= !0x8080808080808080;
@@ -68,13 +65,12 @@ fn generate_mask(sq: Square, is_rook: bool) -> Bitboard {
     mask
 }
 
-// Set the i-th subset of the mask
 fn set_occupancy(mut index: usize, bits_in_mask: u32, mask: Bitboard) -> Bitboard {
     let mut occ = EMPTY;
     let mut m = mask;
     for _ in 0..bits_in_mask {
         let sq = m.trailing_zeros() as Square;
-        m &= m - 1; // clear LSB
+        m &= m - 1;
         if index & 1 != 0 {
             set_bit(&mut occ, sq);
         }
@@ -83,7 +79,6 @@ fn set_occupancy(mut index: usize, bits_in_mask: u32, mask: Bitboard) -> Bitboar
     occ
 }
 
-// Pseudorandom number generator for finding magics
 struct PRNG { seed: u64 }
 impl PRNG {
     fn new(seed: u64) -> Self { Self { seed } }
@@ -98,8 +93,7 @@ impl PRNG {
     }
 }
 
-// Find a magic number for a square
-fn find_magic(sq: Square, is_rook: bool, offset: &mut usize, attacks_table: &mut [Bitboard]) -> Magic {
+fn find_magic(sq: Square, is_rook: bool, offset: &mut usize, attacks_table: &mut Vec<Bitboard>) -> Magic {
     let mask = generate_mask(sq, is_rook);
     let bits = mask.count_ones();
     let num_variations = 1 << bits;
@@ -113,24 +107,21 @@ fn find_magic(sq: Square, is_rook: bool, offset: &mut usize, attacks_table: &mut
         actual_attacks[i] = sliding_attack_slow(sq, occupancies[i], is_rook);
     }
 
-    let mut prng = PRNG::new(42); // deterministic seed
-    let mut used = vec![0; 4096]; // To track which attacks we've mapped
-    let mut attempt = 1;
+    let mut prng = PRNG::new(42);
+    let mut used = vec![0u32; 4096];
+    let mut attempt = 1u32;
 
     loop {
         let magic = prng.rand_few_bits();
-        // Skip invalid magics early
         if (mask.wrapping_mul(magic) & 0xFF00000000000000).count_ones() < 6 {
             continue;
         }
 
         let mut fail = false;
-        // Attempt to map all variations
         for i in 0..num_variations {
             let index = (occupancies[i].wrapping_mul(magic) >> shift) as usize;
             
             if used[index] == attempt {
-                // Collision!
                 if attacks_table[*offset + index] != actual_attacks[i] {
                     fail = true;
                     break;
@@ -151,37 +142,41 @@ fn find_magic(sq: Square, is_rook: bool, offset: &mut usize, attacks_table: &mut
 }
 
 pub fn init_magics() {
-    unsafe {
-        if ROOK_MAGICS[0].mask != 0 { return; } // already initialized
-        
+    TABLES.get_or_init(|| {
         let mut rook_offset = 0;
         let mut bishop_offset = 0;
 
+        let mut rook_attacks = vec![EMPTY; 102400];
+        let mut bishop_attacks = vec![EMPTY; 524288];
+
+        let mut rook_magics = [Magic { mask: 0, magic: 0, shift: 0, offset: 0 }; 64];
+        let mut bishop_magics = [Magic { mask: 0, magic: 0, shift: 0, offset: 0 }; 64];
+
         for sq in 0u8..64u8 {
-            ROOK_MAGICS[sq as usize] = find_magic(sq, true, &mut rook_offset, &mut ROOK_ATTACKS);
-            BISHOP_MAGICS[sq as usize] = find_magic(sq, false, &mut bishop_offset, &mut BISHOP_ATTACKS);
+            rook_magics[sq as usize] = find_magic(sq, true, &mut rook_offset, &mut rook_attacks);
+            bishop_magics[sq as usize] = find_magic(sq, false, &mut bishop_offset, &mut bishop_attacks);
         }
-    }
+
+        MagicTables { rook_magics, bishop_magics, rook_attacks, bishop_attacks }
+    });
 }
 
 #[inline(always)]
 pub fn get_rook_attacks(sq: Square, occ: Bitboard) -> Bitboard {
-    unsafe {
-        let m = &ROOK_MAGICS[sq as usize];
-        let mut hash = occ & m.mask;
-        hash = hash.wrapping_mul(m.magic);
-        hash >>= m.shift;
-        ROOK_ATTACKS[m.offset + hash as usize]
-    }
+    let tables = TABLES.get().unwrap();
+    let m = &tables.rook_magics[sq as usize];
+    let mut hash = occ & m.mask;
+    hash = hash.wrapping_mul(m.magic);
+    hash >>= m.shift;
+    tables.rook_attacks[m.offset + hash as usize]
 }
 
 #[inline(always)]
 pub fn get_bishop_attacks(sq: Square, occ: Bitboard) -> Bitboard {
-    unsafe {
-        let m = &BISHOP_MAGICS[sq as usize];
-        let mut hash = occ & m.mask;
-        hash = hash.wrapping_mul(m.magic);
-        hash >>= m.shift;
-        BISHOP_ATTACKS[m.offset + hash as usize]
-    }
+    let tables = TABLES.get().unwrap();
+    let m = &tables.bishop_magics[sq as usize];
+    let mut hash = occ & m.mask;
+    hash = hash.wrapping_mul(m.magic);
+    hash >>= m.shift;
+    tables.bishop_attacks[m.offset + hash as usize]
 }

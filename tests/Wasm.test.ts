@@ -53,8 +53,8 @@ describe('VortexCore WASM Integration', () => {
         core.reset_board();
         setupStartPos(core);
         core.set_side_to_move(true);
-        // Start pos - depth 2
-        const bestMove = core.search(2);
+        // Start pos - depth 2, 5 second time limit
+        const bestMove = core.search(2, BigInt(5000));
         
         // Ensure a valid move was returned (u16)
         expect(typeof bestMove).toBe('number');
@@ -120,7 +120,7 @@ describe('VortexCore WASM Integration', () => {
         
         // Without move ordering, it blunders with b4b3
         // With move ordering, it should find d8c7 (Qc7) or b8c6 at depth 4+
-        const bestMove = core.search(4);
+        const bestMove = core.search(4, BigInt(10000));
         
         const from = bestMove & 0x3F;
         const to = (bestMove >> 6) & 0x3F;

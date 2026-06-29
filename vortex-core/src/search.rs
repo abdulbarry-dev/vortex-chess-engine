@@ -2,130 +2,321 @@ use crate::state::GameState;
 use crate::move_core::Move;
 use crate::movegen::generate_pseudo_legal_moves;
 use crate::evaluate::evaluate;
-use crate::zobrist::get_zobrist;
 use crate::tt::{TranspositionTable, TT_EXACT, TT_ALPHA, TT_BETA};
+use crate::types::{Color, PieceType, Square};
+use crate::board::Board;
+
+const MAX_PLY: i8 = 64;
+const INFINITY: i16 = 30000;
+const MATE_SCORE: i16 = 29000;
+const DRAW_SCORE: i16 = 0;
+
+#[cfg(target_arch = "wasm32")]
+pub fn current_time_ms() -> u64 {
+    js_sys::Date::now() as u64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 pub struct SearchControl {
     pub nodes: u64,
     pub stop: bool,
     pub time_limit_ms: u64,
-    // Add timer start time here if we had access to WASM time easily, 
-    // but typically we'll poll an atomic flag set by JS or use a simple node counter for now.
+    pub start_time_ms: u64,
 }
 
-// Basic Negamax Alpha-Beta with NMP and LMR
-pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> i16 {
-    if ctrl.stop || ctrl.nodes > 1_000_000 {
-        return 0; // abort
+impl SearchControl {
+    pub fn time_up(&self) -> bool {
+        if self.time_limit_ms == 0 { return false; }
+        current_time_ms() - self.start_time_ms >= self.time_limit_ms
     }
-    
-    ctrl.nodes += 1;
+}
 
-    if depth <= 0 {
-        return quiescence_search(state, alpha, beta, tt, ctrl);
-    }
+fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Move; 2]; MAX_PLY as usize], history: &[[[i32; 64]; 64]; 2]) -> i32 {
+    if m == tt_move { return 10_000_000; }
 
-    let hash = get_zobrist().compute_hash(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
-    
-    let mut tt_move = Move(0);
-    if let Some(entry) = tt.probe(hash) {
-        if entry.depth >= depth {
-            if entry.bound == TT_EXACT {
-                return entry.score;
-            }
-            if entry.bound == TT_ALPHA && entry.score <= alpha {
-                return alpha;
-            }
-            if entry.bound == TT_BETA && entry.score >= beta {
-                return beta;
+    if m.is_promotion() { return 900_000; }
+
+    if m.is_capture() {
+        let capture_sq = if m.flag() == crate::move_core::FLAG_EP_CAPTURE {
+            if state.side_to_move == Color::White { m.to() - 8 } else { m.to() + 8 }
+        } else {
+            m.to()
+        };
+        let them = state.side_to_move.opposite();
+        let mut victim_val = 0;
+        for pt in [PieceType::Queen, PieceType::Rook, PieceType::Bishop, PieceType::Knight, PieceType::Pawn] {
+            if (state.board.get_pieces(them, pt) & (1u64 << capture_sq)) != 0 {
+                victim_val = match pt {
+                    PieceType::Queen => 5,
+                    PieceType::Rook => 4,
+                    PieceType::Bishop => 3,
+                    PieceType::Knight => 3,
+                    PieceType::Pawn => 1,
+                    _ => 0,
+                };
+                break;
             }
         }
-        tt_move = crate::move_core::Move(entry.best_move);
+        let attacker_val = if (state.board.get_pieces(state.side_to_move, PieceType::Pawn) & (1u64 << m.from())) != 0 { 1 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Knight) & (1u64 << m.from())) != 0 { 3 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Bishop) & (1u64 << m.from())) != 0 { 3 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Rook) & (1u64 << m.from())) != 0 { 4 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Queen) & (1u64 << m.from())) != 0 { 5 }
+            else { 6 };
+        return 100_000 + victim_val * 100 - attacker_val;
     }
 
-    // Null Move Pruning (NMP)
-    // We only do NMP if depth >= 3, not in check, and not just after another null move.
-    // We also need Zugzwang detection (don't NMP if we only have pawns and king).
-    if depth >= 3 && !is_in_check(&state) {
-        let mut null_state = state.clone();
-        null_state.side_to_move = null_state.side_to_move.opposite();
-        null_state.en_passant_sq = None;
-        // Search with reduced depth (R=2 or R=3)
-        let r = if depth > 6 { 3 } else { 2 };
-        let null_score = -search_position(null_state, depth - 1 - r, -beta, -beta + 1, ply + 1, tt, ctrl);
-        if null_score >= beta {
-            return beta;
-        }
+    if m == killers[ply as usize][0] || m == killers[ply as usize][1] {
+        return 500_000;
     }
 
-    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
-    score_and_sort_moves(&mut move_list, &state, tt_move);
-    
-    let mut best_score = -30000;
+    let hist = history[state.side_to_move as usize][m.from() as usize][m.to() as usize];
+    if hist > 0 { return 100_000 + hist.min(100_000); }
+
+    0
+}
+
+pub fn search_root(state: &mut GameState, depth: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> u16 {
+    ctrl.nodes = 0;
+    tt.new_search();
+
     let mut best_move = Move(0);
-    let original_alpha = alpha;
-    
-    let mut legal_moves = 0;
+    let mut best_score = -INFINITY;
 
+    let mut killers = [[Move(0); 2]; MAX_PLY as usize];
+    let mut history = [[[0i32; 64]; 64]; 2];
+
+    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
+
+    let mut legal_count = 0;
     for i in 0..move_list.count {
         let m = move_list.moves[i];
-        
+        let flag = m.flag();
+        if flag == crate::move_core::FLAG_KING_CASTLE || flag == crate::move_core::FLAG_QUEEN_CASTLE {
+            if is_in_check_color(state, state.side_to_move) { continue; }
+            let them = state.side_to_move.opposite();
+            let (kingside_sq, queenside_sq) = match state.side_to_move {
+                Color::White => (5u8, 3u8),
+                Color::Black => (61u8, 59u8),
+            };
+            let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
+            if is_square_attacked_by(&state.board, pass_through, them) { continue; }
+        }
+        let mut next = state.clone();
+        next.make_move(m);
+        let opp = next.side_to_move.opposite();
+        if is_in_check_color(&next, opp) { continue; }
+        move_list.moves[legal_count] = m;
+        legal_count += 1;
+    }
+    move_list.count = legal_count;
+
+    if move_list.count == 0 { return 0; }
+
+    let mut alpha = -INFINITY;
+    let beta = INFINITY;
+
+    let mut sorted_indices: Vec<usize> = (0..move_list.count).collect();
+    sorted_indices.sort_unstable_by(|&a, &b| {
+        let sa = score_move(move_list.moves[a], state, Move(0), 0, &killers, &history);
+        let sb = score_move(move_list.moves[b], state, Move(0), 0, &killers, &history);
+        sb.cmp(&sa)
+    });
+    let mut sorted_moves: [Move; 256] = [Move(0); 256];
+    for (i, &idx) in sorted_indices.iter().enumerate() {
+        sorted_moves[i] = move_list.moves[idx];
+    }
+    move_list.moves = sorted_moves;
+
+    for i in 0..move_list.count {
+        if ctrl.stop || ctrl.time_up() { break; }
+
+        let m = move_list.moves[i];
+        let flag = m.flag();
+        if flag == crate::move_core::FLAG_KING_CASTLE || flag == crate::move_core::FLAG_QUEEN_CASTLE {
+            if is_in_check_color(state, state.side_to_move) { continue; }
+            let them = state.side_to_move.opposite();
+            let (kingside_sq, queenside_sq) = match state.side_to_move {
+                Color::White => (5u8, 3u8),
+                Color::Black => (61u8, 59u8),
+            };
+            let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
+            if is_square_attacked_by(&state.board, pass_through, them) { continue; }
+        }
         let mut next_state = state.clone();
         next_state.make_move(m);
 
-        // Filter illegal moves (if our king is in check after the move)
-        // Note: is_in_check for the side that JUST moved!
-        let opp = next_state.side_to_move.opposite(); // which is 'us'
-        if is_in_check_color(&next_state, opp) {
-            continue; 
-        }
+        let opp = next_state.side_to_move.opposite();
+        if is_in_check_color(&next_state, opp) { continue; }
 
-        legal_moves += 1;
-
-        // Late Move Reductions (LMR)
-        let mut score = 0;
-        let mut needs_full_search = true;
-        
-        if depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && !is_in_check(&next_state) {
-            let reduced_depth = depth - 2;
-            score = -search_position(next_state.clone(), reduced_depth, -alpha - 1, -alpha, ply + 1, tt, ctrl);
-            needs_full_search = score > alpha;
-        }
-
-        if needs_full_search {
-            score = -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl);
+        let mut score;
+        if i == 0 {
+            score = -search_position(next_state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
+        } else {
+            score = -search_position(next_state, depth - 1, -alpha - 1, -alpha, 1, tt, ctrl, &mut killers, &mut history);
+            if score > alpha && score < beta {
+                let mut re_state = state.clone();
+                re_state.make_move(m);
+                let opp2 = re_state.side_to_move.opposite();
+                if !is_in_check_color(&re_state, opp2) {
+                    let new_score = -search_position(re_state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
+                    score = new_score;
+                }
+            }
         }
 
         if score > best_score {
             best_score = score;
             best_move = m;
         }
-        
+
+        if score > alpha {
+            alpha = score;
+        }
+    }
+
+    if best_move.0 != 0 {
+        tt.store(state.hash, depth, best_score, TT_EXACT, best_move);
+    }
+
+    best_move.0
+}
+
+pub fn search_position(state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+    if ctrl.stop || ctrl.nodes > 10_000_000 || ctrl.time_up() {
+        return 0;
+    }
+
+    ctrl.nodes += 1;
+
+    if ply >= MAX_PLY {
+        return evaluate(&state);
+    }
+
+    if state.halfmove_clock >= 100 { return DRAW_SCORE; }
+    if is_insufficient_material(&state) { return DRAW_SCORE; }
+    if is_repetition(&state) { return DRAW_SCORE; }
+
+    if depth <= 0 {
+        return quiescence_search(state, alpha, beta, tt, ctrl, killers, history);
+    }
+
+    let hash = state.hash;
+
+    let mut tt_move = Move(0);
+    if let Some(entry) = tt.probe(hash) {
+        if entry.depth >= depth {
+            if entry.bound == TT_EXACT { return entry.score; }
+            if entry.bound == TT_ALPHA && entry.score <= alpha { return alpha; }
+            if entry.bound == TT_BETA && entry.score >= beta { return beta; }
+        }
+        tt_move = Move(entry.best_move);
+    }
+
+    if depth >= 3 && !is_in_check(&state) && !has_major_pieces(&state, state.side_to_move) {
+        let mut ns = state.clone();
+        ns.side_to_move = ns.side_to_move.opposite();
+        ns.en_passant_sq = None;
+        let r = if depth > 6 { 3 } else { 2 };
+        let null_score = -search_position(ns, depth - 1 - r, -beta, -beta + 1, ply + 1, tt, ctrl, killers, history);
+        if null_score >= beta { return beta; }
+    }
+
+    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
+
+    let mut indices: Vec<usize> = (0..move_list.count).collect();
+    indices.sort_unstable_by(|&a, &b| {
+        let sa = score_move(move_list.moves[a], &state, tt_move, ply, killers, history);
+        let sb = score_move(move_list.moves[b], &state, tt_move, ply, killers, history);
+        sb.cmp(&sa)
+    });
+    let mut sorted: [Move; 256] = [Move(0); 256];
+    for (i, &idx) in indices.iter().enumerate() {
+        sorted[i] = move_list.moves[idx];
+    }
+    let num_moves = move_list.count;
+    move_list.moves = sorted;
+    move_list.count = num_moves;
+
+    let in_check = is_in_check(&state);
+    let mut best_score = -INFINITY - 1;
+    let mut best_move = Move(0);
+    let original_alpha = alpha;
+    let mut legal_moves = 0;
+    let moves_evaluated = move_list.count.min(if in_check { 256 } else { 64 });
+
+    for i in 0..moves_evaluated {
+        if ctrl.stop || ctrl.time_up() { break; }
+
+        let m = move_list.moves[i];
+
+        let flag = m.flag();
+        if flag == crate::move_core::FLAG_KING_CASTLE || flag == crate::move_core::FLAG_QUEEN_CASTLE {
+            if is_in_check_color(&state, state.side_to_move) { continue; }
+            let them = state.side_to_move.opposite();
+            let (kingside_sq, queenside_sq) = match state.side_to_move {
+                Color::White => (5u8, 3u8),
+                Color::Black => (61u8, 59u8),
+            };
+            let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
+            if is_square_attacked_by(&state.board, pass_through, them) { continue; }
+        }
+        let mut next_state = state.clone();
+        next_state.make_move(m);
+
+        let opp = next_state.side_to_move.opposite();
+        if is_in_check_color(&next_state, opp) { continue; }
+
+        legal_moves += 1;
+
+        let score = if !in_check && depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && m != tt_move {
+            let lmr_base = legal_moves.min(64) as f32;
+            let reduction = (lmr_base.ln() / 2.0f32.ln()).round() as i8;
+            let reduced = (depth - 1 - reduction).max(0);
+            let lmr_score = -search_position(next_state.clone(), reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+            if lmr_score > alpha {
+                -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history)
+            } else {
+                lmr_score
+            }
+        } else {
+            -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history)
+        };
+
+        if score > best_score {
+            best_score = score;
+            best_move = m;
+        }
+
         if score > alpha {
             alpha = score;
         }
 
         if alpha >= beta {
-            break; // Beta cutoff
+            if !m.is_capture() {
+                killers[ply as usize][1] = killers[ply as usize][0];
+                killers[ply as usize][0] = m;
+                history[state.side_to_move as usize][m.from() as usize][m.to() as usize] += depth as i32;
+            }
+            break;
         }
     }
 
     if legal_moves == 0 {
-        if is_in_check(&state) {
-            return -29000 + ply as i16; // Checkmate
-        } else {
-            return 0; // Stalemate
-        }
+        if in_check { return -MATE_SCORE + ply as i16; }
+        return DRAW_SCORE;
     }
 
-    // Store to TT
-    let bound = if best_score <= original_alpha {
-        TT_ALPHA
-    } else if best_score >= beta {
-        TT_BETA
-    } else {
-        TT_EXACT
-    };
+    let bound = if best_score <= original_alpha { TT_ALPHA }
+               else if best_score >= beta { TT_BETA }
+               else { TT_EXACT };
 
     tt.store(hash, depth, best_score, bound, best_move);
 
@@ -136,14 +327,11 @@ fn is_in_check(state: &GameState) -> bool {
     is_in_check_color(state, state.side_to_move)
 }
 
-fn is_in_check_color(state: &GameState, color: crate::types::Color) -> bool {
-    use crate::types::PieceType;
+fn is_in_check_color(state: &GameState, color: Color) -> bool {
     let king_bb = state.board.get_pieces(color, PieceType::King);
-    if king_bb == 0 { return false; } // Should not happen in real chess
-    let king_sq = king_bb.trailing_zeros() as crate::types::Square;
-    
-    // Check if any enemy piece attacks king_sq
-    // A trick is to pretend we have pieces of all types on king_sq and see if they attack enemy pieces
+    if king_bb == 0 { return false; }
+    let king_sq = king_bb.trailing_zeros() as Square;
+
     use crate::attacks::{get_knight_attacks, get_king_attacks};
     use crate::magic::{get_rook_attacks, get_bishop_attacks};
     let them = color.opposite();
@@ -151,144 +339,156 @@ fn is_in_check_color(state: &GameState, color: crate::types::Color) -> bool {
 
     if (get_knight_attacks(king_sq) & state.board.get_pieces(them, PieceType::Knight)) != 0 { return true; }
     if (get_king_attacks(king_sq) & state.board.get_pieces(them, PieceType::King)) != 0 { return true; }
-    
+
     let rooks_queens = state.board.get_pieces(them, PieceType::Rook) | state.board.get_pieces(them, PieceType::Queen);
     if (get_rook_attacks(king_sq, all) & rooks_queens) != 0 { return true; }
 
     let bishops_queens = state.board.get_pieces(them, PieceType::Bishop) | state.board.get_pieces(them, PieceType::Queen);
     if (get_bishop_attacks(king_sq, all) & bishops_queens) != 0 { return true; }
 
-    // Pawns
     let pawns = state.board.get_pieces(them, PieceType::Pawn);
-    let pawn_attacks = if color == crate::types::Color::White {
-        // Black pawns attacking white king
-        ((king_bb << 7) & !0x0101010101010101) | ((king_bb << 9) & !0x8080808080808080)
+    let pawn_attacks = if color == Color::White {
+        ((king_bb & !0x0101010101010101) << 7) | ((king_bb & !0x8080808080808080) << 9)
     } else {
-        ((king_bb >> 9) & !0x0101010101010101) | ((king_bb >> 7) & !0x8080808080808080)
+        ((king_bb & !0x0101010101010101) >> 9) | ((king_bb & !0x8080808080808080) >> 7)
     };
     if (pawn_attacks & pawns) != 0 { return true; }
 
     false
 }
 
-pub fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> i16 {
-    if ctrl.stop || ctrl.nodes > 2_000_000 {
+fn is_square_attacked_by(board: &Board, sq: Square, attacker: Color) -> bool {
+    use crate::attacks::{get_knight_attacks, get_king_attacks};
+    use crate::magic::{get_rook_attacks, get_bishop_attacks};
+
+    let all = board.occupancies[2];
+
+    if (get_knight_attacks(sq) & board.get_pieces(attacker, PieceType::Knight)) != 0 { return true; }
+    if (get_king_attacks(sq) & board.get_pieces(attacker, PieceType::King)) != 0 { return true; }
+
+    let rooks_queens = board.get_pieces(attacker, PieceType::Rook) | board.get_pieces(attacker, PieceType::Queen);
+    if (get_rook_attacks(sq, all) & rooks_queens) != 0 { return true; }
+
+    let bishops_queens = board.get_pieces(attacker, PieceType::Bishop) | board.get_pieces(attacker, PieceType::Queen);
+    if (get_bishop_attacks(sq, all) & bishops_queens) != 0 { return true; }
+
+    let sq_bb = 1u64 << sq;
+    let pawns = board.get_pieces(attacker, PieceType::Pawn);
+    let pawn_attacks = if attacker == Color::White {
+        ((sq_bb & !0x0101010101010101) >> 9) | ((sq_bb & !0x8080808080808080) >> 7)
+    } else {
+        ((sq_bb & !0x0101010101010101) << 7) | ((sq_bb & !0x8080808080808080) << 9)
+    };
+    if (pawn_attacks & pawns) != 0 { return true; }
+
+    false
+}
+
+fn is_insufficient_material(state: &GameState) -> bool {
+    let w_knights = state.board.get_pieces(Color::White, PieceType::Knight);
+    let b_knights = state.board.get_pieces(Color::Black, PieceType::Knight);
+    let w_bishops = state.board.get_pieces(Color::White, PieceType::Bishop);
+    let b_bishops = state.board.get_pieces(Color::Black, PieceType::Bishop);
+    let w_rooks = state.board.get_pieces(Color::White, PieceType::Rook);
+    let b_rooks = state.board.get_pieces(Color::Black, PieceType::Rook);
+    let w_queens = state.board.get_pieces(Color::White, PieceType::Queen);
+    let b_queens = state.board.get_pieces(Color::Black, PieceType::Queen);
+    let w_pawns = state.board.get_pieces(Color::White, PieceType::Pawn);
+    let b_pawns = state.board.get_pieces(Color::Black, PieceType::Pawn);
+
+    let total_non_kings = (w_knights | b_knights | w_bishops | b_bishops | w_rooks | b_rooks | w_queens | b_queens | w_pawns | b_pawns).count_ones();
+    if total_non_kings == 0 { return true; }
+    if total_non_kings == 1 {
+        if w_bishops.count_ones() == 1 || b_bishops.count_ones() == 1 { return true; }
+        if w_knights.count_ones() == 1 || b_knights.count_ones() == 1 { return true; }
+    }
+    if total_non_kings == 2 && w_bishops.count_ones() == 1 && b_bishops.count_ones() == 1 {
+        let w_bb_sq = w_bishops.trailing_zeros() as usize;
+        let b_bb_sq = b_bishops.trailing_zeros() as usize;
+        if (w_bb_sq % 2) == (b_bb_sq % 2) { return true; }
+    }
+
+    false
+}
+
+fn is_repetition(state: &GameState) -> bool {
+    let history = &state.repetition_history;
+    if history.len() < 4 { return false; }
+
+    let current_hash = state.hash;
+    let mut count = 0;
+    for &h in history.iter().rev() {
+        if h == current_hash {
+            count += 1;
+            if count >= 2 { return true; }
+        }
+    }
+    false
+}
+
+fn has_major_pieces(state: &GameState, color: Color) -> bool {
+    let rooks = state.board.get_pieces(color, PieceType::Rook);
+    let queens = state.board.get_pieces(color, PieceType::Queen);
+    (rooks | queens) != 0
+}
+
+fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+    if ctrl.stop || ctrl.nodes > 20_000_000 || ctrl.time_up() {
         return 0;
     }
-    
+
     ctrl.nodes += 1;
-    
+
     let stand_pat = evaluate(&state);
-    if stand_pat >= beta {
-        return beta;
+    if stand_pat >= beta { return beta; }
+    if alpha < stand_pat { alpha = stand_pat; }
+
+    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
+
+    let mut indices: Vec<usize> = (0..move_list.count).collect();
+    indices.sort_unstable_by(|&a, &b| {
+        let sa = score_move(move_list.moves[a], &state, Move(0), 0, killers, history);
+        let sb = score_move(move_list.moves[b], &state, Move(0), 0, killers, history);
+        sb.cmp(&sa)
+    });
+    let mut sorted: [Move; 256] = [Move(0); 256];
+    for (i, &idx) in indices.iter().enumerate() {
+        sorted[i] = move_list.moves[idx];
     }
-    
-    if alpha < stand_pat {
-        alpha = stand_pat;
-    }
-    
-    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move);
-    score_and_sort_moves(&mut move_list, &state, Move(0));
-    
+    let num_moves = move_list.count;
+    move_list.moves = sorted;
+    move_list.count = num_moves;
+
     for i in 0..move_list.count {
+        if ctrl.stop || ctrl.time_up() { break; }
+
         let m = move_list.moves[i];
-        
-        // Only consider captures in QS
-        if !m.is_capture() && !m.is_promotion() {
-            continue;
+        if !m.is_capture() && !m.is_promotion() { continue; }
+
+        if stand_pat + 1100 < alpha { continue; }
+
+        let flag = m.flag();
+        if flag == crate::move_core::FLAG_KING_CASTLE || flag == crate::move_core::FLAG_QUEEN_CASTLE {
+            if is_in_check_color(&state, state.side_to_move) { continue; }
+            let them = state.side_to_move.opposite();
+            let (kingside_sq, queenside_sq) = match state.side_to_move {
+                Color::White => (5u8, 3u8),
+                Color::Black => (61u8, 59u8),
+            };
+            let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
+            if is_square_attacked_by(&state.board, pass_through, them) { continue; }
         }
-        
         let mut next_state = state.clone();
         next_state.make_move(m);
-        
-        // Filter illegal moves
+
         let opp = next_state.side_to_move.opposite();
-        if is_in_check_color(&next_state, opp) {
-            continue; 
-        }
-        
-        let score = -quiescence_search(next_state, -beta, -alpha, tt, ctrl);
-        
-        if score >= beta {
-            return beta;
-        }
-        
-        if score > alpha {
-            alpha = score;
-        }
+        if is_in_check_color(&next_state, opp) { continue; }
+
+        let score = -quiescence_search(next_state, -beta, -alpha, tt, ctrl, killers, history);
+
+        if score >= beta { return beta; }
+        if score > alpha { alpha = score; }
     }
-    
+
     alpha
 }
-
-fn score_and_sort_moves(move_list: &mut crate::movegen::MoveList, state: &GameState, tt_move: Move) {
-    let mut scores = [0i32; 256];
-    
-    for i in 0..move_list.count {
-        let m = move_list.moves[i];
-        if m == tt_move {
-            scores[i] = 1_000_000;
-        } else if m.is_capture() {
-            // MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
-            let mut victim_val = 0;
-            let capture_sq = if m.flag() == crate::move_core::FLAG_EP_CAPTURE {
-                if state.side_to_move == crate::types::Color::White { m.to() - 8 } else { m.to() + 8 }
-            } else {
-                m.to()
-            };
-            
-            let them = state.side_to_move.opposite();
-            for pt in [crate::types::PieceType::Queen, crate::types::PieceType::Rook, crate::types::PieceType::Bishop, crate::types::PieceType::Knight, crate::types::PieceType::Pawn] {
-                if (state.board.get_pieces(them, pt) & (1u64 << capture_sq)) != 0 {
-                    victim_val = match pt {
-                        crate::types::PieceType::Queen => 5,
-                        crate::types::PieceType::Rook => 4,
-                        crate::types::PieceType::Bishop => 3,
-                        crate::types::PieceType::Knight => 3,
-                        crate::types::PieceType::Pawn => 1,
-                        _ => 0,
-                    };
-                    break;
-                }
-            }
-            
-            let mut attacker_val = 0;
-            for pt in [crate::types::PieceType::Pawn, crate::types::PieceType::Knight, crate::types::PieceType::Bishop, crate::types::PieceType::Rook, crate::types::PieceType::Queen, crate::types::PieceType::King] {
-                if (state.board.get_pieces(state.side_to_move, pt) & (1u64 << m.from())) != 0 {
-                    attacker_val = match pt {
-                        crate::types::PieceType::Pawn => 1,
-                        crate::types::PieceType::Knight => 3,
-                        crate::types::PieceType::Bishop => 3,
-                        crate::types::PieceType::Rook => 4,
-                        crate::types::PieceType::Queen => 5,
-                        crate::types::PieceType::King => 6,
-                        _ => 0,
-                    };
-                    break;
-                }
-            }
-            scores[i] = 100_000 + (victim_val * 100) - attacker_val;
-        } else if m.is_promotion() {
-            scores[i] = 90_000;
-        } else {
-            scores[i] = 0;
-        }
-    }
-    
-    // Simple selection sort (move_list is small)
-    for i in 0..move_list.count {
-        let mut best_idx = i;
-        let mut best_score = scores[i];
-        for j in (i + 1)..move_list.count {
-            if scores[j] > best_score {
-                best_score = scores[j];
-                best_idx = j;
-            }
-        }
-        if best_idx != i {
-            move_list.moves.swap(i, best_idx);
-            scores.swap(i, best_idx);
-        }
-    }
-}
-
