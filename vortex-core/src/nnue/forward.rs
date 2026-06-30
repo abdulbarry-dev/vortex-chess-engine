@@ -1,5 +1,7 @@
-use crate::types::{Color, FT_SIZE, FT_HALF, FT_QUANT, FT_SHIFT, NUM_PHASE_BUCKETS};
+use crate::types::{Color, FT_SIZE, FT_HALF, FT_QUANT, FT_SHIFT, NUM_PHASE_BUCKETS, L2_SIZE, L3_SIZE};
 use crate::state::GameState;
+use crate::nnue::weights::WEIGHTS;
+use crate::nnue::network::IncrementalNetwork;
 
 /// Determines the current game phase based on non-pawn material.
 /// Returns (phase_float, bucket_index).
@@ -41,3 +43,64 @@ pub fn activate_ft(
     
     ft
 }
+
+/// Full NNUE forward pass.
+pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i32 {
+    let w = WEIGHTS.lock().unwrap();
+    if !w.is_loaded {
+        return 0; // Fallback happens elsewhere
+    }
+
+    let (_, bucket) = game_phase(state);
+    let stm = state.side_to_move as usize;
+
+    let pst = &network.current_pst_ref().values[stm];
+    let threat = &network.current_threat_ref().values[stm];
+    
+    let phase_offset = bucket * FT_SIZE;
+    let phase_embed = &w.phase_embeddings[phase_offset..phase_offset + FT_SIZE];
+
+    let ft = activate_ft(pst, threat, phase_embed);
+
+    // L1 Pass
+    let mut l1_out = [0.0f32; L2_SIZE];
+    let l1_bias_offset = bucket * L2_SIZE;
+    let dequant = 1.0 / (FT_QUANT as f32 * FT_QUANT as f32 * w.l1_quant as f32);
+    
+    for i in 0..L2_SIZE {
+        let mut sum = 0i32;
+        let w_offset = i * FT_SIZE;
+        for j in 0..FT_SIZE {
+            if ft[j] > 0 {
+                sum += (ft[j] as i32) * (w.l1_weights[w_offset + j] as i32);
+            }
+        }
+        
+        let mut val = (sum as f32) * dequant + w.l1_biases[l1_bias_offset + i];
+        if val < 0.0 { val = 0.0; } // CReLU / ReLU
+        l1_out[i] = val;
+    }
+
+    // L2 Pass
+    let mut l2_out = [0.0f32; L3_SIZE];
+    let l2_bias_offset = bucket * L3_SIZE;
+    
+    for i in 0..L3_SIZE {
+        let mut sum = w.l2_biases[l2_bias_offset + i];
+        let w_offset = i * L2_SIZE;
+        for j in 0..L2_SIZE {
+            sum += l1_out[j] * w.l2_weights[w_offset + j];
+        }
+        if sum < 0.0 { sum = 0.0; } // CReLU / ReLU
+        l2_out[i] = sum;
+    }
+
+    // L3 Pass
+    let mut score = w.l3_biases[bucket];
+    for j in 0..L3_SIZE {
+        score += l2_out[j] * w.l3_weights[j];
+    }
+
+    (score * 100.0) as i32
+}
+
