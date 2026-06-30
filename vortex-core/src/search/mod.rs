@@ -181,6 +181,8 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
         let opp = next_state.side_to_move.opposite();
         if is_in_check_color(&next_state, opp) { continue; }
 
+        if ctrl.stop || ctrl.time_up() { break; }
+
         let mut score;
         if i == 0 {
             score = -search_position(next_state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);

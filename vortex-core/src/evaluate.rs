@@ -168,8 +168,6 @@ pub fn evaluate(state: &mut GameState) -> i16 {
         final_score += swindle.complexity_bonus(state) as i16;
     }
 
-    final_score += crate::contempt::compute_contempt(final_score);
-
     final_score
 }
 

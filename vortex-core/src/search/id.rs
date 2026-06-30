@@ -39,6 +39,14 @@ pub fn search_root_id(
 
         let result = search_with_windowing(state, depth, alpha, beta, tt, ctrl);
 
+        if ctrl.stop || ctrl.time_up() {
+            if depth == 1 && best_move.0 == 0 {
+                best_move = result.best_move;
+                best_score = result.score;
+            }
+            break;
+        }
+
         if depth >= 2 {
             let delta = (result.score as i32 - prev_score as i32).abs() as f32;
             volatility = volatility * 0.7 + delta * 0.3;
