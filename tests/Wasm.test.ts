@@ -54,11 +54,13 @@ describe('VortexCore WASM Integration', () => {
         setupStartPos(core);
         core.set_side_to_move(true);
         // Start pos - depth 2, 5 second time limit
-        const bestMove = core.search(2, BigInt(5000));
+        const stats = core.search(2, BigInt(5000));
         
-        // Ensure a valid move was returned (u16)
-        expect(typeof bestMove).toBe('number');
-        expect(bestMove).toBeGreaterThan(0);
+        // Ensure a valid stats object was returned
+        expect(typeof stats).toBe('object');
+        expect(stats.best_move).toBeGreaterThan(0);
+        
+        const bestMove = stats.best_move;
         
         const from = bestMove & 0x3F;
         const to = (bestMove >> 6) & 0x3F;
@@ -73,6 +75,10 @@ describe('VortexCore WASM Integration', () => {
     it('should load dummy nnue buffer', () => {
         // Dummy buffer of expected size: 40960*256*2 + 256*2 + 256*2*2 + 2 = 20,973,058
         const dummyBuffer = new Uint8Array(20973058);
+        dummyBuffer[0] = 86; // V
+        dummyBuffer[1] = 82; // R
+        dummyBuffer[2] = 84; // T
+        dummyBuffer[3] = 88; // X
         const result = core.load_nnue(dummyBuffer);
         expect(result).toBe(true);
     });
@@ -120,7 +126,8 @@ describe('VortexCore WASM Integration', () => {
         
         // Without move ordering, it blunders with b4b3
         // With move ordering, it should find d8c7 (Qc7) or b8c6 at depth 4+
-        const bestMove = core.search(4, BigInt(10000));
+        const stats = core.search(4, BigInt(10000));
+        const bestMove = stats.best_move;
         
         const from = bestMove & 0x3F;
         const to = (bestMove >> 6) & 0x3F;

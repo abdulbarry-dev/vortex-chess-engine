@@ -384,14 +384,15 @@ class UciInterface {
             return;
           }
         }
-        
         this.syncToRust();
         
         // Call WASM core search with depth and time limit
         const timeLimit = timeLimitMs || 5000;
-        const bestMoveU16 = this.core.search(depth, BigInt(timeLimit));
+        const startTime = Date.now();
+        const stats = this.core.search(depth, BigInt(timeLimit));
         
-        if (bestMoveU16 !== 0) {
+        if (stats && stats.best_move !== 0) {
+            const bestMoveU16 = stats.best_move;
             const from = bestMoveU16 & 0x3F;
             const to = (bestMoveU16 >> 6) & 0x3F;
             const flag = bestMoveU16 >> 12;
@@ -411,7 +412,10 @@ class UciInterface {
             }
             const moveStr = fromStr + toStr + promoStr;
             
-            this.send(`info depth ${depth} string VortexCore (Rust) evaluation used`);
+            const timeSpent = Date.now() - startTime;
+            const nps = Math.floor(Number(stats.nodes) / Math.max(1, timeSpent / 1000));
+            this.send(`info depth ${depth} score cp ${stats.best_score} nodes ${stats.nodes} nps ${nps} time ${timeSpent} string contempt=${stats.contempt} volatility=${stats.volatility.toFixed(2)} threat_delta=${stats.threat_delta}`);
+            
             this.send(`bestmove ${moveStr}`);
         } else {
           // No move found, return first legal move (fallback)

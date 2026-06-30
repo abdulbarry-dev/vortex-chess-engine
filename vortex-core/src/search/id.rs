@@ -8,6 +8,7 @@ const INFINITY: i16 = 30000;
 const MATE_SCORE: i16 = 29000;
 const MAX_PLY: i8 = 64;
 
+#[derive(serde::Serialize)]
 pub struct SearchStats {
     pub best_move: u16,
     pub best_score: i16,

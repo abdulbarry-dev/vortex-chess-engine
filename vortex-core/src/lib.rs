@@ -32,6 +32,8 @@ pub struct VortexCore {
     state: GameState,
     tt: TranspositionTable,
     last_nodes: u32,
+    last_volatility: f32,
+    last_contempt: i16,
 }
 
 #[wasm_bindgen]
@@ -47,6 +49,8 @@ impl VortexCore {
             state: GameState::new(),
             tt: TranspositionTable::new(16),
             last_nodes: 0,
+            last_volatility: 0.0,
+            last_contempt: 0,
         }
     }
 
@@ -151,7 +155,7 @@ impl VortexCore {
     }
 
     #[wasm_bindgen]
-    pub fn search(&mut self, depth: i8, time_limit_ms: u64) -> u16 {
+    pub fn search(&mut self, depth: i8, time_limit_ms: u64) -> wasm_bindgen::JsValue {
         self.state.recompute_hash();
         let mut ctrl = SearchControl {
             nodes: 0,
@@ -167,6 +171,34 @@ impl VortexCore {
         }
 
         self.last_nodes = ctrl.nodes as u32;
-        stats.best_move
+        self.last_volatility = stats.volatility;
+        self.last_contempt = stats.contempt;
+        serde_wasm_bindgen::to_value(&stats).unwrap()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_game_phase(&self) -> u8 {
+        crate::nnue::forward::game_phase(&self.state).1 as u8
+    }
+
+    #[wasm_bindgen]
+    pub fn is_nnue_loaded(&self) -> bool {
+        crate::nnue::serialize::is_vortex_loaded()
+    }
+
+    #[wasm_bindgen]
+    pub fn get_contempt(&mut self) -> i16 {
+        let score = self.evaluate();
+        crate::contempt::compute_contempt(score)
+    }
+
+    #[wasm_bindgen]
+    pub fn get_threat_delta(&self) -> i16 {
+        self.state.threat_delta
+    }
+
+    #[wasm_bindgen]
+    pub fn get_volatility(&self) -> f32 {
+        self.last_volatility
     }
 }
