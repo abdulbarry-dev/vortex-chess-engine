@@ -21,7 +21,8 @@ use crate::movegen::generate_pseudo_legal_moves;
 use crate::zobrist::init_zobrist;
 use crate::tt::TranspositionTable;
 use crate::state::GameState;
-use crate::search::{search_root, SearchControl};
+use crate::search::{SearchControl};
+use crate::search::id::search_root_id;
 use crate::nnue::serialize::load_vortex_weights;
 
 #[wasm_bindgen]
@@ -159,12 +160,12 @@ impl VortexCore {
         };
 
         self.state.repetition_history.push(self.state.hash);
-        let best_move = search_root(&mut self.state, depth, &mut self.tt, &mut ctrl);
+        let stats = search_root_id(&mut self.state, depth, time_limit_ms, &mut self.tt, &mut ctrl);
         if !self.state.repetition_history.is_empty() {
             self.state.repetition_history.pop();
         }
 
         self.last_nodes = ctrl.nodes as u32;
-        best_move
+        stats.best_move
     }
 }

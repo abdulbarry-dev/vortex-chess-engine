@@ -189,9 +189,9 @@ fn test_search_depth_4() {
     for depth in 1..=5 {
         let start = std::time::Instant::now();
         let mut state_copy = state.clone();
-        let best = vortex_core::search::search_root(&mut state_copy, depth, &mut tt, &mut ctrl);
-        let elapsed = start.elapsed();
-        println!("depth {}: best_move={} nodes={} time={:?}", depth, best, ctrl.nodes, elapsed);
-        assert!(best != 0, "No move found at depth {}!", depth);
+        let stats = vortex_core::search::id::search_root_id(&mut state_copy, depth, 0, &mut tt, &mut ctrl);
+        assert_ne!(stats.best_move, 0, "Depth {} should return a move", depth);
+        println!("depth {}: best_move={} nodes={} time={:?}", depth, stats.best_move, ctrl.nodes, start.elapsed());
+        assert!(stats.best_move != 0, "No move found at depth {}!", depth);
     }
 }

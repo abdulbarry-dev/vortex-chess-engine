@@ -1,5 +1,7 @@
 pub mod variance;
 pub mod swindle;
+pub mod id;
+pub mod aspiration;
 
 use crate::state::GameState;
 use crate::move_core::Move;
@@ -90,7 +92,13 @@ fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Mo
     swindle.modify_move_ordering(m, base_score, state)
 }
 
-pub fn search_root(state: &mut GameState, depth: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> u16 {
+#[derive(Clone, Copy)]
+pub struct SearchResult {
+    pub best_move: Move,
+    pub score: i16,
+}
+
+pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl) -> SearchResult {
     ctrl.nodes = 0;
     tt.new_search();
 
@@ -125,10 +133,10 @@ pub fn search_root(state: &mut GameState, depth: i8, tt: &mut TranspositionTable
     }
     move_list.count = legal_count;
 
-    if move_list.count == 0 { return 0; }
+    if move_list.count == 0 { 
+        return SearchResult { best_move: Move(0), score: if is_in_check_color(state, state.side_to_move) { -MATE_SCORE } else { DRAW_SCORE } }; 
+    }
 
-    let mut alpha = -INFINITY;
-    let beta = INFINITY;
 
     let swindle = SwindleMode::new(evaluate(state));
     let _variance_tracker = VarianceTracker::new();
@@ -199,7 +207,10 @@ pub fn search_root(state: &mut GameState, depth: i8, tt: &mut TranspositionTable
         tt.store(state.hash, depth, best_score, TT_EXACT, best_move);
     }
 
-    best_move.0
+    SearchResult {
+        best_move,
+        score: best_score,
+    }
 }
 
 pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
