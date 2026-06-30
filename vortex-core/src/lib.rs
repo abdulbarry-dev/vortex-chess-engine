@@ -11,6 +11,7 @@ pub mod state;
 pub mod evaluate;
 pub mod search;
 pub mod nnue;
+pub mod fen;
 
 use wasm_bindgen::prelude::*;
 use crate::types::{Color, PieceType};

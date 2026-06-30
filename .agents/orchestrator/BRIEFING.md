@@ -29,7 +29,7 @@ Coordinate the Phase 1 NNUE Core Architecture code review and produce `phase1_re
   1. Decompose scope and create PROJECT.md [done]
   2. Spawn explorer subagents for subcomponents [done]
   3. Synthesize explorer findings into phase1_review.md [done]
-  4. Verify report and submit [done]
+  4. Verify report and submit [in-progress]
 - **Current phase**: 4
 - **Current focus**: Verify report and submit
 
@@ -52,11 +52,12 @@ Coordinate the Phase 1 NNUE Core Architecture code review and produce `phase1_re
 |-------|------|-----------|--------|---------|
 | explorer_1 | teamwork_preview_explorer | Phase 1 NNUE Core Architecture analysis | completed | 705bdddf-cb8f-4201-9099-fd4a89d50cbd |
 | worker_1 | teamwork_preview_worker | Write phase1_review.md to project root | completed | ce785311-840b-462b-bbb9-9b8cd68cce15 |
+| worker_2 | teamwork_preview_worker | Fix Rust test test_search_depth_1 | in-progress | ae5a85a8-519c-4ba9-a2a3-0a72f691716a |
 
 ## Succession Status
 - Succession required: no
-- Spawn count: 2 / 16
-- Pending subagents: none
+- Spawn count: 3 / 16
+- Pending subagents: ae5a85a8-519c-4ba9-a2a3-0a72f691716a
 - Predecessor: none
 - Successor: not yet spawned
 
