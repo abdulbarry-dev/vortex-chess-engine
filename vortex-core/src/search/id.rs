@@ -59,6 +59,6 @@ pub fn search_root_id(
         nodes: ctrl.nodes,
         volatility,
         threat_delta: state.threat_delta,
-        contempt: 0, // Placeholder, implemented in Phase 5
+        contempt: crate::contempt::compute_contempt(best_score),
     }
 }

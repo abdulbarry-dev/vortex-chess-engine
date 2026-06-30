@@ -157,16 +157,20 @@ pub fn evaluate(state: &mut GameState) -> i16 {
     score += tablebase_magnetism(state, score);
     score = fortress_scale(state, score);
 
-    let swindle = crate::search::swindle::SwindleMode::new(score);
-    if swindle.active {
-        score += swindle.complexity_bonus(state) as i16;
-    }
-
-    if state.side_to_move == Color::White {
+    let mut final_score = if state.side_to_move == Color::White {
         score
     } else {
         -score
+    };
+
+    let swindle = crate::search::swindle::SwindleMode::new(final_score);
+    if swindle.active {
+        final_score += swindle.complexity_bonus(state) as i16;
     }
+
+    final_score += crate::contempt::compute_contempt(final_score);
+
+    final_score
 }
 
 fn is_endgame(state: &GameState) -> bool {

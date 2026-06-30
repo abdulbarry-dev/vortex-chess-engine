@@ -6,6 +6,7 @@ pub mod attacks;
 pub mod move_core;
 pub mod movegen;
 pub mod zobrist;
+pub mod contempt;
 pub mod tt;
 pub mod state;
 pub mod evaluate;

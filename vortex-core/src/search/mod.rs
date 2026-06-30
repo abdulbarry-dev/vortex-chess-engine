@@ -46,7 +46,7 @@ impl SearchControl {
 use crate::search::swindle::SwindleMode;
 use crate::search::variance::VarianceTracker;
 
-fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Move; 2]; MAX_PLY as usize], history: &[[[i32; 64]; 64]; 2], swindle: &SwindleMode) -> i32 {
+fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Move; 2]; MAX_PLY as usize], history: &[[[i32; 64]; 64]; 2], swindle: &SwindleMode, contempt: i16) -> i32 {
     if m == tt_move { return 10_000_000; }
 
     if m.is_promotion() { return 900_000; }
@@ -78,7 +78,12 @@ fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Mo
             else if (state.board.get_pieces(state.side_to_move, PieceType::Rook) & (1u64 << m.from())) != 0 { 4 }
             else if (state.board.get_pieces(state.side_to_move, PieceType::Queen) & (1u64 << m.from())) != 0 { 5 }
             else { 6 };
-        return 100_000 + victim_val * 100 - attacker_val;
+        let mut capture_score = 100_000 + victim_val * 100 - attacker_val;
+        if contempt < 0 {
+            // Tier 1: bonus for captures
+            capture_score += 50;
+        }
+        return capture_score;
     }
 
     if m == killers[ply as usize][0] || m == killers[ply as usize][1] {
@@ -138,13 +143,15 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
     }
 
 
-    let swindle = SwindleMode::new(evaluate(state));
+    let eval_score = evaluate(state);
+    let swindle = SwindleMode::new(eval_score);
+    let contempt = crate::contempt::compute_contempt(eval_score);
     let _variance_tracker = VarianceTracker::new();
 
     let mut sorted_indices: Vec<usize> = (0..move_list.count).collect();
     sorted_indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], state, Move(0), 0, &killers, &history, &swindle);
-        let sb = score_move(move_list.moves[b], state, Move(0), 0, &killers, &history, &swindle);
+        let sa = score_move(move_list.moves[a], state, Move(0), 0, &killers, &history, &swindle, contempt);
+        let sb = score_move(move_list.moves[b], state, Move(0), 0, &killers, &history, &swindle, contempt);
         sb.cmp(&sa)
     });
     let mut sorted_moves: [Move; 256] = [Move(0); 256];
@@ -224,9 +231,12 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
         return evaluate(&mut state);
     }
 
-    if state.halfmove_clock >= 100 { return DRAW_SCORE; }
-    if is_insufficient_material(&state) { return DRAW_SCORE; }
-    if is_repetition(&state) { return DRAW_SCORE; }
+    let is_draw = state.halfmove_clock >= 100 || is_insufficient_material(&state) || is_repetition(&state);
+    if is_draw {
+        let eval_score = evaluate(&mut state);
+        let contempt = crate::contempt::compute_contempt(eval_score);
+        return if contempt >= 0 { 0 } else { contempt };
+    }
 
     if depth <= 0 {
         return quiescence_search(state, alpha, beta, tt, ctrl, killers, history);
@@ -264,11 +274,13 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
 
     let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
 
-    let swindle = SwindleMode::new(evaluate(&mut state));
+    let eval_score = evaluate(&mut state);
+    let swindle = SwindleMode::new(eval_score);
+    let contempt = crate::contempt::compute_contempt(eval_score);
     let mut indices: Vec<usize> = (0..move_list.count).collect();
     indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], &state, tt_move, ply, killers, history, &swindle);
-        let sb = score_move(move_list.moves[b], &state, tt_move, ply, killers, history, &swindle);
+        let sa = score_move(move_list.moves[a], &state, tt_move, ply, killers, history, &swindle, contempt);
+        let sb = score_move(move_list.moves[b], &state, tt_move, ply, killers, history, &swindle, contempt);
         sb.cmp(&sa)
     });
     let mut sorted: [Move; 256] = [Move(0); 256];
@@ -480,10 +492,11 @@ fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut T
     let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
 
     let swindle = SwindleMode::new(stand_pat);
+    let contempt = crate::contempt::compute_contempt(stand_pat);
     let mut indices: Vec<usize> = (0..move_list.count).collect();
     indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], &state, Move(0), 0, killers, history, &swindle);
-        let sb = score_move(move_list.moves[b], &state, Move(0), 0, killers, history, &swindle);
+        let sa = score_move(move_list.moves[a], &state, Move(0), 0, killers, history, &swindle, contempt);
+        let sb = score_move(move_list.moves[b], &state, Move(0), 0, killers, history, &swindle, contempt);
         sb.cmp(&sa)
     });
     let mut sorted: [Move; 256] = [Move(0); 256];
