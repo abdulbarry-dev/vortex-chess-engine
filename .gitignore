@@ -82,6 +82,7 @@ vortex-v2.sh
 # Scripts directory (everything except tracked files)
 scripts/
 !scripts/test-wasm.js
+!scripts/curate_data.py
 
 # Rust build artifacts
 vortex-core/target/
