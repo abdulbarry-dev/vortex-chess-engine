@@ -7,6 +7,7 @@ pub mod weights;
 pub mod forward;
 pub mod network;
 pub mod serialize;
+pub mod threat_map;
 
 pub const HIDDEN_SIZE: usize = 256;
 pub const INPUT_SIZE: usize = 40960;

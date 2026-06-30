@@ -71,4 +71,22 @@ impl Board {
         
         n * 320 + b * 330 + r * 500 + q * 900
     }
+
+    pub fn piece_at(&self, sq: Square) -> Option<(Color, PieceType)> {
+        let bit = 1u64 << sq;
+        if (self.occupancies[0] & bit) != 0 {
+            for pt in [PieceType::Pawn, PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen, PieceType::King] {
+                if (self.pieces[0][pt as usize] & bit) != 0 {
+                    return Some((Color::White, pt));
+                }
+            }
+        } else if (self.occupancies[1] & bit) != 0 {
+            for pt in [PieceType::Pawn, PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen, PieceType::King] {
+                if (self.pieces[1][pt as usize] & bit) != 0 {
+                    return Some((Color::Black, pt));
+                }
+            }
+        }
+        None
+    }
 }

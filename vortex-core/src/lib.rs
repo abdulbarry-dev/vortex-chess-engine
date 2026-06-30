@@ -21,7 +21,7 @@ use crate::zobrist::init_zobrist;
 use crate::tt::TranspositionTable;
 use crate::state::GameState;
 use crate::search::{search_root, SearchControl};
-use crate::nnue::{init_nnue_empty, load_nnue_buffer};
+use crate::nnue::serialize::load_vortex_weights;
 
 #[wasm_bindgen]
 pub struct VortexCore {
@@ -39,7 +39,6 @@ impl VortexCore {
         init_magics();
         init_step_attacks();
         init_zobrist();
-        init_nnue_empty();
         VortexCore {
             version: String::from("2.0.0-rust-alpha"),
             state: GameState::new(),
@@ -81,7 +80,7 @@ impl VortexCore {
 
     #[wasm_bindgen]
     pub fn load_nnue(&mut self, buffer: Vec<u8>) -> bool {
-        load_nnue_buffer(&buffer)
+        load_vortex_weights(&buffer)
     }
 
     #[wasm_bindgen]
@@ -140,7 +139,7 @@ impl VortexCore {
     #[wasm_bindgen]
     pub fn evaluate(&mut self) -> i16 {
         self.state.recompute_hash();
-        crate::evaluate::evaluate(&self.state)
+        crate::evaluate::evaluate(&mut self.state)
     }
 
     #[wasm_bindgen]

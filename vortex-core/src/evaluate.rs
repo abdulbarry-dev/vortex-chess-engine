@@ -1,7 +1,8 @@
 use crate::state::GameState;
 use crate::types::{Color, PieceType};
 use crate::bitboard::{count_bits, pop_lsb, EMPTY};
-use crate::nnue::{Accumulator, refresh_accumulator, evaluate_nnue, is_nnue_loaded};
+use crate::nnue::serialize::is_vortex_loaded;
+use crate::nnue::forward::evaluate_nnue;
 use crate::magic::{get_bishop_attacks, get_rook_attacks};
 use crate::attacks::get_knight_attacks;
 
@@ -113,17 +114,16 @@ pub fn structural_danger(state: &GameState) -> u8 {
     level.min(3)
 }
 
-pub fn evaluate(state: &GameState) -> i16 {
+pub fn evaluate(state: &mut GameState) -> i16 {
     let mut score = 0;
 
-    if is_nnue_loaded() {
-        let mut acc = Accumulator::new();
-        refresh_accumulator(state, &mut acc);
-        let nnue_score = evaluate_nnue(state, &acc);
+    if is_vortex_loaded() {
+        state.nnue.ensure_accurate(&state.board);
+        let nnue_score = evaluate_nnue(state, &state.nnue);
         score = if state.side_to_move == Color::White {
-            nnue_score
+            nnue_score as i16
         } else {
-            -nnue_score
+            -nnue_score as i16
         };
     } else {
         // 1. Material and Piece-Square

@@ -189,7 +189,7 @@ pub fn search_root(state: &mut GameState, depth: i8, tt: &mut TranspositionTable
     best_move.0
 }
 
-pub fn search_position(state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
     if ctrl.stop || ctrl.nodes > 10_000_000 || ctrl.time_up() {
         return 0;
     }
@@ -197,7 +197,7 @@ pub fn search_position(state: GameState, depth: i8, mut alpha: i16, beta: i16, p
     ctrl.nodes += 1;
 
     if ply >= MAX_PLY {
-        return evaluate(&state);
+        return evaluate(&mut state);
     }
 
     if state.halfmove_clock >= 100 { return DRAW_SCORE; }
@@ -432,14 +432,14 @@ fn has_major_pieces(state: &GameState, color: Color) -> bool {
     (rooks | queens) != 0
 }
 
-fn quiescence_search(state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
     if ctrl.stop || ctrl.nodes > 20_000_000 || ctrl.time_up() {
         return 0;
     }
 
     ctrl.nodes += 1;
 
-    let stand_pat = evaluate(&state);
+    let stand_pat = evaluate(&mut state);
     if stand_pat >= beta { return beta; }
     if alpha < stand_pat { alpha = stand_pat; }
 

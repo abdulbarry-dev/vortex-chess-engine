@@ -43,7 +43,7 @@ fn test_evaluate_startpos() {
     init_nnue_empty();
     let mut state = GameState::new();
     setup_startpos(&mut state);
-    let score = evaluate(&state);
+    let score = evaluate(&mut state);
     assert_eq!(score, 0);
 }
 
@@ -97,7 +97,7 @@ fn test_fortress_opposite_bishops() {
     state.castling_rights = 0;
     state.recompute_hash();
 
-    let score = evaluate(&state);
+    let score = evaluate(&mut state);
     // Both sides equal material (~equal score), fortress should keep it near zero
     // Without fortress: 0 material diff + PST differences
     assert!(score.abs() < 200, "Fortress position score too extreme: {}", score);
@@ -121,7 +121,7 @@ fn test_magnetism_endgame_kp_k() {
     state.castling_rights = 0;
     state.recompute_hash();
 
-    let score = evaluate(&state);
+    let score = evaluate(&mut state);
     // White is up a pawn (~100cp) but total_pieces=3, non_pawn_pieces≈0
     // Magnetism should cap the score — it should be well under pure material
     assert!(score > 0, "White should be better with an extra pawn: {}", score);

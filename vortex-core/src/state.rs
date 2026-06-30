@@ -127,7 +127,17 @@ impl GameState {
         self.board.remove_piece(us, moving_piece, from);
         
         // NNUE Incremental Update (Phase 1 stub, expanded in Phase 2)
+        self.nnue.push();
         self.nnue.update_pst(moving_piece, us, from, to);
+        if let Some((color, pt)) = captured_piece {
+            let capture_sq = if flag == crate::move_core::FLAG_EP_CAPTURE {
+                if us == Color::White { to - 8 } else { to + 8 }
+            } else {
+                to
+            };
+            self.nnue.push_threats_on_change(&self.board, color, pt, capture_sq, false);
+        }
+        self.nnue.update_threats(&self.board, moving_piece, us, from, to);
 
         if m.is_promotion() {
             let promo_piece = match flag {
@@ -136,6 +146,8 @@ impl GameState {
                 FLAG_PROMO_ROOK | FLAG_PROMO_CAPTURE_ROOK => PieceType::Rook,
                 FLAG_PROMO_QUEEN | FLAG_PROMO_CAPTURE_QUEEN | _ => PieceType::Queen,
             };
+            self.nnue.push_threats_on_change(&self.board, us, PieceType::Pawn, to, false);
+            self.nnue.push_threats_on_change(&self.board, us, promo_piece, to, true);
             self.board.add_piece(us, promo_piece, to);
             self.hash ^= z.piece_keys[us as usize][promo_piece as usize][to as usize];
         } else if flag == FLAG_KING_CASTLE {
@@ -145,6 +157,7 @@ impl GameState {
             self.hash ^= z.piece_keys[us as usize][PieceType::King as usize][to as usize];
             self.hash ^= z.piece_keys[us as usize][PieceType::Rook as usize][(to + 1) as usize];
             self.hash ^= z.piece_keys[us as usize][PieceType::Rook as usize][(to - 1) as usize];
+            self.nnue.update_threats(&self.board, PieceType::Rook, us, to + 1, to - 1);
         } else if flag == FLAG_QUEEN_CASTLE {
             self.board.add_piece(us, PieceType::King, to);
             self.board.remove_piece(us, PieceType::Rook, to - 2);
@@ -152,6 +165,7 @@ impl GameState {
             self.hash ^= z.piece_keys[us as usize][PieceType::King as usize][to as usize];
             self.hash ^= z.piece_keys[us as usize][PieceType::Rook as usize][(to - 2) as usize];
             self.hash ^= z.piece_keys[us as usize][PieceType::Rook as usize][(to + 1) as usize];
+            self.nnue.update_threats(&self.board, PieceType::Rook, us, to - 2, to + 1);
         } else {
             self.board.add_piece(us, moving_piece, to);
             self.hash ^= z.piece_keys[us as usize][moving_piece as usize][to as usize];
@@ -249,5 +263,7 @@ impl GameState {
         if !self.repetition_history.is_empty() {
             self.repetition_history.pop();
         }
+
+        self.nnue.pop();
     }
 }
