@@ -298,7 +298,7 @@ class UciInterface {
     this.isSearching = true;
 
     // Parse search parameters
-    let depth = 6; // Default depth
+    let depth = 64; // Default depth, let time limit control the search
     let timeLimitMs: number | undefined;
     let wtime = 0;
     let btime = 0;
@@ -363,12 +363,8 @@ class UciInterface {
       // Minimum time: 100ms, Maximum: 50% of remaining time
       timeLimitMs = Math.max(100, Math.min(timeLimitMs, baseTime / 2));
       
-      // Adjust depth based on available time
-      if (timeLimitMs < 500) {
-        depth = Math.min(depth, 4);
-      } else if (timeLimitMs < 2000) {
-        depth = Math.min(depth, 5);
-      }
+      // Maximum safety margin applied to time
+      timeLimitMs = Math.max(100, Math.min(timeLimitMs, baseTime / 2));
     }
 
     // Perform search asynchronously
@@ -414,7 +410,7 @@ class UciInterface {
             
             const timeSpent = Date.now() - startTime;
             const nps = Math.floor(Number(stats.nodes) / Math.max(1, timeSpent / 1000));
-            this.send(`info depth ${depth} score cp ${stats.best_score} nodes ${stats.nodes} nps ${nps} time ${timeSpent} string contempt=${stats.contempt} volatility=${stats.volatility.toFixed(2)} threat_delta=${stats.threat_delta}`);
+            this.send(`info depth ${stats.depth || depth} score cp ${stats.best_score} nodes ${stats.nodes} nps ${nps} time ${timeSpent} string contempt=${stats.contempt} volatility=${stats.volatility.toFixed(2)} threat_delta=${stats.threat_delta}`);
             
             this.send(`bestmove ${moveStr}`);
         } else {

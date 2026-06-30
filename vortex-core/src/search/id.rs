@@ -16,6 +16,7 @@ pub struct SearchStats {
     pub volatility: f32,
     pub threat_delta: i16,
     pub contempt: i16,
+    pub depth: i8,
 }
 
 pub fn search_root_id(
@@ -30,6 +31,7 @@ pub fn search_root_id(
     let mut prev_score = 0i16;
     let mut volatility = 0.0f32;
 
+    let mut completed_depth = 0;
     for depth in 1..=max_depth {
         if ctrl.stop || ctrl.time_up() { break; }
 
@@ -46,6 +48,8 @@ pub fn search_root_id(
             }
             break;
         }
+
+        completed_depth = depth;
 
         if depth >= 2 {
             let delta = (result.score as i32 - prev_score as i32).abs() as f32;
@@ -69,5 +73,6 @@ pub fn search_root_id(
         volatility,
         threat_delta: state.threat_delta,
         contempt: crate::contempt::compute_contempt(best_score),
+        depth: completed_depth,
     }
 }

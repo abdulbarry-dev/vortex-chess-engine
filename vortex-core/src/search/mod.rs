@@ -49,7 +49,7 @@ use crate::search::variance::VarianceTracker;
 fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Move; 2]; MAX_PLY as usize], history: &[[[i32; 64]; 64]; 2], swindle: &SwindleMode, contempt: i16) -> i32 {
     if m == tt_move { return 10_000_000; }
 
-    if m.is_promotion() { return 900_000; }
+    if m.is_promotion() { return 9_000_000; }
 
     if m.is_capture() {
         let capture_sq = if m.flag() == crate::move_core::FLAG_EP_CAPTURE {
@@ -62,37 +62,36 @@ fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Mo
         for pt in [PieceType::Queen, PieceType::Rook, PieceType::Bishop, PieceType::Knight, PieceType::Pawn] {
             if (state.board.get_pieces(them, pt) & (1u64 << capture_sq)) != 0 {
                 victim_val = match pt {
-                    PieceType::Queen => 5,
-                    PieceType::Rook => 4,
-                    PieceType::Bishop => 3,
-                    PieceType::Knight => 3,
-                    PieceType::Pawn => 1,
+                    PieceType::Queen => 50,
+                    PieceType::Rook => 40,
+                    PieceType::Bishop => 30,
+                    PieceType::Knight => 30,
+                    PieceType::Pawn => 10,
                     _ => 0,
                 };
                 break;
             }
         }
-        let attacker_val = if (state.board.get_pieces(state.side_to_move, PieceType::Pawn) & (1u64 << m.from())) != 0 { 1 }
-            else if (state.board.get_pieces(state.side_to_move, PieceType::Knight) & (1u64 << m.from())) != 0 { 3 }
-            else if (state.board.get_pieces(state.side_to_move, PieceType::Bishop) & (1u64 << m.from())) != 0 { 3 }
-            else if (state.board.get_pieces(state.side_to_move, PieceType::Rook) & (1u64 << m.from())) != 0 { 4 }
-            else if (state.board.get_pieces(state.side_to_move, PieceType::Queen) & (1u64 << m.from())) != 0 { 5 }
-            else { 6 };
-        let mut capture_score = 100_000 + victim_val * 100 - attacker_val;
+        let attacker_val = if (state.board.get_pieces(state.side_to_move, PieceType::Pawn) & (1u64 << m.from())) != 0 { 10 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Knight) & (1u64 << m.from())) != 0 { 30 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Bishop) & (1u64 << m.from())) != 0 { 30 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Rook) & (1u64 << m.from())) != 0 { 40 }
+            else if (state.board.get_pieces(state.side_to_move, PieceType::Queen) & (1u64 << m.from())) != 0 { 50 }
+            else { 60 };
+        
+        let mut capture_score = 8_000_000 + victim_val * 100 - attacker_val;
         if contempt < 0 {
-            // Tier 1: bonus for captures
-            capture_score += 50;
+            capture_score += 500;
         }
         return capture_score;
     }
 
     if m == killers[ply as usize][0] || m == killers[ply as usize][1] {
-        return 500_000;
+        return 7_000_000;
     }
 
     let hist = history[state.side_to_move as usize][m.from() as usize][m.to() as usize];
-    let mut base_score = 0;
-    if hist > 0 { base_score = 100_000 + hist.min(100_000); }
+    let mut base_score = hist.min(100_000);
 
     swindle.modify_move_ordering(m, base_score, state)
 }
@@ -324,19 +323,26 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
 
         legal_moves += 1;
 
-        let score = if !in_check && depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && m != tt_move {
-            let lmr_base = legal_moves.min(64) as f32;
-            let reduction = (lmr_base.ln() / 2.0f32.ln()).round() as i8;
-            let reduced = (depth - 1 - reduction).max(0);
-            let lmr_score = -search_position(next_state.clone(), reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
-            if lmr_score > alpha {
-                -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history)
-            } else {
-                lmr_score
-            }
+        let mut score;
+        if legal_moves == 1 {
+            score = -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
         } else {
-            -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history)
-        };
+            if !in_check && depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && m != tt_move {
+                let lmr_base = legal_moves.min(64) as f32;
+                let reduction = (lmr_base.ln() / 2.0f32.ln()).round() as i8;
+                let reduced = (depth - 1 - reduction).max(0);
+                score = -search_position(next_state.clone(), reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+                if score > alpha {
+                    score = -search_position(next_state.clone(), depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+                }
+            } else {
+                score = -search_position(next_state.clone(), depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+            }
+
+            if score > alpha && score < beta {
+                score = -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
+            }
+        }
 
         if score > best_score {
             best_score = score;
@@ -475,9 +481,11 @@ fn is_repetition(state: &GameState) -> bool {
 }
 
 fn has_major_pieces(state: &GameState, color: Color) -> bool {
-    let rooks = state.board.get_pieces(color, PieceType::Rook);
-    let queens = state.board.get_pieces(color, PieceType::Queen);
-    (rooks | queens) != 0
+    let pieces = state.board.get_pieces(color, PieceType::Rook) |
+                 state.board.get_pieces(color, PieceType::Queen) |
+                 state.board.get_pieces(color, PieceType::Knight) |
+                 state.board.get_pieces(color, PieceType::Bishop);
+    pieces != 0
 }
 
 fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
