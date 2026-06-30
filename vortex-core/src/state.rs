@@ -15,6 +15,7 @@ pub struct GameState {
     pub repetition_history: Vec<u64>,
     pub hash: u64,
     pub nnue: IncrementalNetwork,
+    pub threat_delta: i16,
 }
 
 pub struct UndoInfo {
@@ -49,6 +50,7 @@ impl GameState {
             repetition_history: Vec::new(),
             hash,
             nnue: IncrementalNetwork::new(),
+            threat_delta: 0,
         }
     }
 
