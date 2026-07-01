@@ -99,8 +99,8 @@ impl TranspositionTable {
             return;
         }
 
-        let replace0 = if depth > bucket[0].depth { 2 } else { bucket[0].age.wrapping_sub(self.age) as i16 };
-        let replace1 = if depth > bucket[1].depth { 2 } else { bucket[1].age.wrapping_sub(self.age) as i16 };
+        let replace0 = if depth > bucket[0].depth { 2 } else { self.age.wrapping_sub(bucket[0].age) as i16 };
+        let replace1 = if depth > bucket[1].depth { 2 } else { self.age.wrapping_sub(bucket[1].age) as i16 };
 
         if replace0 >= replace1 {
             bucket[0] = new_entry;

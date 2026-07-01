@@ -78,6 +78,7 @@ impl GameState {
     }
 
     pub fn make_move(&mut self, m: Move) -> UndoInfo {
+        self.repetition_history.push(self.hash);
         let from = m.from();
         let to = m.to();
         let flag = m.flag();

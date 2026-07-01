@@ -404,6 +404,79 @@ impl IncrementalNetwork {
     }
 
 
+    pub fn refresh_threats(&mut self, board: &crate::board::Board) {
+        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        if !weights.is_loaded {
+            return;
+        }
+
+        let threat = &mut self.threat_stack[self.index];
+        threat.values[0].fill(0);
+        threat.values[1].fill(0);
+
+        let map = get_threat_map();
+
+        for atk_color in [Color::White, Color::Black] {
+            for atk_pt in [
+                PieceType::Pawn,
+                PieceType::Knight,
+                PieceType::Bishop,
+                PieceType::Rook,
+                PieceType::Queen,
+                PieceType::King,
+            ] {
+                let mut atk_bb = board.get_pieces(atk_color, atk_pt);
+                while atk_bb != 0 {
+                    let from_sq = atk_bb.trailing_zeros() as Square;
+                    atk_bb &= atk_bb - 1;
+
+                    let vic_color = atk_color.opposite();
+                    for vic_pt in [
+                        PieceType::Pawn,
+                        PieceType::Knight,
+                        PieceType::Bishop,
+                        PieceType::Rook,
+                        PieceType::Queen,
+                        PieceType::King,
+                    ] {
+                        let mut vic_bb = board.get_pieces(vic_color, vic_pt);
+                        while vic_bb != 0 {
+                            let to_sq = vic_bb.trailing_zeros() as Square;
+                            vic_bb &= vic_bb - 1;
+
+                            // White perspective: raw squares
+                            if let Some(feat_idx) = map.get_index(atk_pt, from_sq, vic_pt, to_sq) {
+                                let row_start = feat_idx * FT_SIZE;
+                                let row_end = row_start + FT_SIZE;
+                                if row_end <= weights.threat_weights.len() {
+                                    for i in 0..FT_SIZE {
+                                        let w = weights.threat_weights[row_start + i] as i16;
+                                        threat.values[0][i] = threat.values[0][i].saturating_add(w);
+                                    }
+                                }
+                            }
+
+                            // Black perspective: flip both squares
+                            if let Some(feat_idx) = map.get_index(atk_pt, from_sq ^ 56, vic_pt, to_sq ^ 56) {
+                                let row_start = feat_idx * FT_SIZE;
+                                let row_end = row_start + FT_SIZE;
+                                if row_end <= weights.threat_weights.len() {
+                                    for i in 0..FT_SIZE {
+                                        let w = weights.threat_weights[row_start + i] as i16;
+                                        threat.values[1][i] = threat.values[1][i].saturating_add(w);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        threat.accurate[0] = true;
+        threat.accurate[1] = true;
+    }
+
     /// Make both accumulators accurate before evaluation.
     pub fn ensure_accurate(&mut self, board: &crate::board::Board) {
         // PST: full refresh if stale (covers king moves and cold-start).
@@ -417,7 +490,12 @@ impl IncrementalNetwork {
         if !self.threat_stack[self.index].accurate[0]
             || !self.threat_stack[self.index].accurate[1]
         {
-            self.apply_threat_deltas();
+            let delta_len = self.threat_stack[self.index].delta_len;
+            if delta_len == 0 {
+                self.refresh_threats(board);
+            } else {
+                self.apply_threat_deltas();
+            }
         }
     }
 }

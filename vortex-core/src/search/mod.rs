@@ -254,10 +254,16 @@ pub fn search_position(state: &mut GameState, depth: i8, mut alpha: i16, beta: i
 
     let mut tt_move = Move(0);
     if let Some(entry) = tt.probe(hash) {
+        let mut score = entry.score;
+        if score > MATE_SCORE - 100 {
+            score -= ply as i16;
+        } else if score < -MATE_SCORE + 100 {
+            score += ply as i16;
+        }
         if entry.depth >= depth {
-            if entry.bound == TT_EXACT { return entry.score; }
-            if entry.bound == TT_ALPHA && entry.score <= alpha { return alpha; }
-            if entry.bound == TT_BETA && entry.score >= beta { return beta; }
+            if entry.bound == TT_EXACT { return score; }
+            if entry.bound == TT_ALPHA && score <= alpha { return alpha; }
+            if entry.bound == TT_BETA && score >= beta { return beta; }
         }
         tt_move = Move(entry.best_move);
     }
@@ -340,7 +346,7 @@ pub fn search_position(state: &mut GameState, depth: i8, mut alpha: i16, beta: i
         } else {
             if !in_check && depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && m != tt_move {
                 let lmr_base = legal_moves.min(64) as f32;
-                let reduction = (lmr_base.ln() / 2.0f32.ln()).round() as i8;
+                let reduction = ((lmr_base.ln() / 2.0f32.ln()).round() as i8).min(depth / 2).max(1);
                 let reduced = (depth - 1 - reduction).max(0);
                 score = -search_position(state, reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
                 if score > alpha {
@@ -388,7 +394,13 @@ pub fn search_position(state: &mut GameState, depth: i8, mut alpha: i16, beta: i
                else if best_score >= beta { TT_BETA }
                else { TT_EXACT };
 
-    tt.store(hash, depth, best_score, bound, best_move);
+    let mut score_to_store = best_score;
+    if score_to_store > MATE_SCORE - 100 {
+        score_to_store += ply as i16;
+    } else if score_to_store < -MATE_SCORE + 100 {
+        score_to_store -= ply as i16;
+    }
+    tt.store(hash, depth, score_to_store, bound, best_move);
 
     best_score
 }

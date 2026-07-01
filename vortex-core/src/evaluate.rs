@@ -106,8 +106,8 @@ pub fn structural_danger(state: &GameState) -> u8 {
     // Advanced passed pawns
     let w_pawns = state.board.get_pieces(Color::White, PieceType::Pawn);
     let b_pawns = state.board.get_pieces(Color::Black, PieceType::Pawn);
-    let b_passed_advanced = (b_pawns & 0x00FFFF0000000000) != 0;
-    let w_passed_advanced = (w_pawns & 0x00000000FFFF0000) != 0;
+    let b_passed_advanced = (b_pawns & 0x00000000FFFF0000) != 0; // Black advanced ranks (ranks 2 or 3)
+    let w_passed_advanced = (w_pawns & 0x00FFFF0000000000) != 0; // White advanced ranks (ranks 6 or 7)
     if b_passed_advanced { level += 1; }
     if w_passed_advanced { level += 1; }
 
@@ -246,15 +246,13 @@ fn evaluate_pawn_structure(state: &GameState, color: Color) -> i16 {
         
         // Passed
         let passed_mask = if color == Color::White {
-            let mut mask = file_mask | adj_files;
-            mask &= !((1u64 << (sq + 1)) - 1);
-            mask &= !0xFF; // ignore rank 1
-            mask
+            let mask = file_mask | adj_files;
+            let ranks_above = if rank < 7 { 0xFFFFFFFFFFFFFFFFu64 << ((rank + 1) * 8) } else { 0 };
+            mask & ranks_above
         } else {
-            let mut mask = file_mask | adj_files;
-            mask &= (1u64 << sq) - 1;
-            mask &= !0xFF00000000000000;
-            mask
+            let mask = file_mask | adj_files;
+            let ranks_below = (1u64 << (rank * 8)) - 1;
+            mask & ranks_below
         };
         
         if (enemy_pawns & passed_mask) == 0 {
