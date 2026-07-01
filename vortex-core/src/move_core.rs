@@ -46,4 +46,12 @@ impl Move {
     pub fn is_promotion(self) -> bool {
         (self.flag() & 8) != 0
     }
+
+    /// Converts a move into an index for the Policy Head [0, 1858)
+    /// Placeholder implementation mapping from/to squares into a dense ID.
+    pub fn to_policy_index(self) -> usize {
+        let from = self.from() as usize;
+        let to = self.to() as usize;
+        ((from * 64) + to) % 1858
+    }
 }

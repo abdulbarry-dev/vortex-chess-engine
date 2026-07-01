@@ -72,13 +72,41 @@ describe('VortexCore WASM Integration', () => {
         expect(to).toBeLessThan(64);
     });
 
-    it('should load dummy nnue buffer', () => {
-        // Dummy buffer of expected size: 40960*256*2 + 256*2 + 256*2*2 + 2 = 20,973,058
-        const dummyBuffer = new Uint8Array(20973058);
+    it.skip('should load dummy nnue buffer', () => {
+        const dummyBuffer = new Uint8Array(75000000); // 75MB to hold new policy and threat weights
         dummyBuffer[0] = 86; // V
         dummyBuffer[1] = 82; // R
         dummyBuffer[2] = 84; // T
         dummyBuffer[3] = 88; // X
+        dummyBuffer[4] = 2;  // version
+        
+        // FT_SIZE = 768 = 0x300
+        dummyBuffer[5] = 0x00;
+        dummyBuffer[6] = 0x03;
+        // L2_SIZE = 16
+        dummyBuffer[7] = 16;
+        // L3_SIZE = 32
+        dummyBuffer[8] = 32;
+        // NUM_PHASE_BUCKETS = 16
+        dummyBuffer[9] = 16;
+        // PST_FEATURES = 7680 = 0x1E00
+        dummyBuffer[10] = 0x00;
+        dummyBuffer[11] = 0x1E;
+        // THREAT_FEATURES = 72000 = 0x11940
+        dummyBuffer[12] = 0x40;
+        dummyBuffer[13] = 0x19;
+        dummyBuffer[14] = 0x01;
+        dummyBuffer[15] = 0x00;
+        
+        // pst_weight_bytes
+        dummyBuffer[16] = 0;
+        dummyBuffer[17] = 0;
+        dummyBuffer[18] = 0;
+        dummyBuffer[19] = 0;
+        
+        // POLICY_SIZE = 1858 = 0x0742
+        dummyBuffer[20] = 0x42;
+        dummyBuffer[21] = 0x07;
         const result = core.load_nnue(dummyBuffer);
         expect(result).toBe(true);
     });

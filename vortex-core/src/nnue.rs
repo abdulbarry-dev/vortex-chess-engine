@@ -108,3 +108,8 @@ fn legacy_feature_index(
     let piece_offset = (piece_type_idx * 64) + piece_sq as usize + color_offset;
     (king_sq as usize * 640) + piece_offset
 }
+
+/// Evaluates the Policy logit for a single move index.
+pub fn evaluate_policy_move(state: &GameState, network: &IncrementalNetwork, move_idx: usize) -> f32 {
+    crate::nnue::forward::evaluate_policy_move(state, network, move_idx)
+}

@@ -19,6 +19,9 @@ pub struct VortexWeights {
     pub l3_weights: Vec<f32>,        
     pub l3_biases: Vec<f32>,         
 
+    pub policy_weights: Vec<f32>,
+    pub policy_biases: Vec<f32>,
+
     pub is_loaded: bool,
 }
 
@@ -36,6 +39,8 @@ impl VortexWeights {
             l2_biases: Vec::new(),
             l3_weights: Vec::new(),
             l3_biases: Vec::new(),
+            policy_weights: Vec::new(),
+            policy_biases: Vec::new(),
             is_loaded: false,
         }
     }

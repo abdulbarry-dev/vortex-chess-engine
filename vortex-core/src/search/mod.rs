@@ -93,7 +93,12 @@ fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Mo
     }
 
     let hist = history[state.side_to_move as usize][m.from() as usize][m.to() as usize];
-    let base_score = hist.min(100_000);
+    let mut base_score = hist.min(100_000);
+
+    // Neural Network Policy Head: Prior distribution for move ordering
+    let policy_logit = crate::nnue::evaluate_policy_move(state, &state.nnue, m.to_policy_index());
+    let policy_bonus = (policy_logit * 5000.0) as i32; // Scale logit to act as a strong history bias
+    base_score += policy_bonus;
 
     swindle.modify_move_ordering(m, base_score, state)
 }

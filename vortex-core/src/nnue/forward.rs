@@ -131,3 +131,45 @@ pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i32 {
     // Scale to centipawns
     (score * 100.0) as i32
 }
+
+/// Evaluates the Policy logit for a single move index.
+/// This allows on-demand policy evaluation for generated pseudo-legal moves
+/// to save computation compared to computing the full 1858-dimensional vector.
+pub fn evaluate_policy_move(state: &GameState, network: &IncrementalNetwork, move_idx: usize) -> f32 {
+    let w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    if !w.is_loaded || move_idx >= crate::types::POLICY_SIZE {
+        return 0.0;
+    }
+
+    let (_, bucket) = game_phase(state);
+    let stm = state.side_to_move as usize;
+
+    let pst    = &network.current_pst_ref().values[stm];
+    let threat = &network.current_threat_ref().values[stm];
+
+    let phase_offset = bucket * FT_SIZE;
+    let phase_embed  = &w.phase_embeddings[phase_offset..phase_offset + FT_SIZE];
+
+    let ft = activate_ft(pst, threat, phase_embed);
+
+    let mut logit = w.policy_biases[move_idx];
+    let w_offset = move_idx * FT_SIZE;
+    
+    // Dequantisation is NOT needed here because FT in Rust is in [0, 255] which is
+    // treated as [0, 1.0] in PyTorch. Wait, in evaluate_nnue we had:
+    // val = (sum as f32) * dequant + ...
+    // Since policy weights are trained in float-space on [0,1] features, we need to divide by FT_QUANT^2.
+    // SCReLU squares the values, so it's scaled by FT_QUANT * FT_QUANT.
+    let dequant = 1.0 / (FT_QUANT as f32 * FT_QUANT as f32);
+
+    // Instead of i32 sum, we just sum in f32 since policy_weights are f32.
+    let mut sum_f32 = 0.0f32;
+    for j in 0..FT_SIZE {
+        if ft[j] > 0 {
+            sum_f32 += (ft[j] as f32) * w.policy_weights[w_offset + j];
+        }
+    }
+
+    logit += sum_f32 * dequant;
+    logit
+}

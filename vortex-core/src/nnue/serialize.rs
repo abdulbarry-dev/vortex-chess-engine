@@ -1,6 +1,6 @@
 use crate::nnue::weights::{WEIGHTS, IS_NNUE_LOADED};
 use crate::types::{FT_SIZE, L2_SIZE, L3_SIZE, NUM_PHASE_BUCKETS,
-                   PST_FEATURES, THREAT_FEATURES};
+                   PST_FEATURES, THREAT_FEATURES, POLICY_SIZE};
 
 // ---------------------------------------------------------------------------
 // .vortex binary format (plan §1.7)
@@ -28,9 +28,11 @@ use crate::types::{FT_SIZE, L2_SIZE, L3_SIZE, NUM_PHASE_BUCKETS,
 // ...      VAR   f32-LE  L2 biases              [NUM_PHASE_BUCKETS × L3_SIZE]
 // ...      VAR   f32-LE  L3 weights             [L3_SIZE]
 // ...      VAR   f32-LE  L3 biases              [NUM_PHASE_BUCKETS]
+// ...      VAR   f32-LE  Policy weights         [POLICY_SIZE × FT_SIZE]
+// ...      VAR   f32-LE  Policy biases          [POLICY_SIZE]
 
-const HEADER_BYTES: usize = 20;
-const FORMAT_VERSION: u8 = 1;
+const HEADER_BYTES: usize = 22;
+const FORMAT_VERSION: u8 = 2;
 
 // ---------------------------------------------------------------------------
 // Load
@@ -59,6 +61,7 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
                                          buffer[14], buffer[15]]) as usize;
     let _pst_bytes = u32::from_le_bytes([buffer[16], buffer[17],
                                          buffer[18], buffer[19]]) as usize;
+    let policy_size = u16::from_le_bytes([buffer[20], buffer[21]]) as usize;
 
     // Validate against our compiled constants
     if version   != FORMAT_VERSION
@@ -68,6 +71,7 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
         || num_phase != NUM_PHASE_BUCKETS
         || pst_feat  != PST_FEATURES
         || thr_feat  != THREAT_FEATURES
+        || policy_size != POLICY_SIZE
     {
         return false;
     }
@@ -177,6 +181,18 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
         w.l3_biases[i] = read_f32!();
     }
 
+    // 12. Policy weights [POLICY_SIZE × FT_SIZE × f32]
+    w.policy_weights.resize(POLICY_SIZE * FT_SIZE, 0.0);
+    for i in 0..w.policy_weights.len() {
+        w.policy_weights[i] = read_f32!();
+    }
+
+    // 13. Policy biases [POLICY_SIZE × f32]
+    w.policy_biases.resize(POLICY_SIZE, 0.0);
+    for i in 0..w.policy_biases.len() {
+        w.policy_biases[i] = read_f32!();
+    }
+
     w.is_loaded = true;
     IS_NNUE_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
     true
@@ -206,6 +222,7 @@ pub fn save_vortex_weights() -> Option<Vec<u8>> {
     buf.extend_from_slice(&(PST_FEATURES    as u16).to_le_bytes());
     buf.extend_from_slice(&(THREAT_FEATURES as u32).to_le_bytes());
     buf.extend_from_slice(&(pst_weight_bytes as u32).to_le_bytes());
+    buf.extend_from_slice(&(POLICY_SIZE     as u16).to_le_bytes());
 
     // PST biases
     for &v in &w.pst_biases { buf.extend_from_slice(&v.to_le_bytes()); }
@@ -229,6 +246,10 @@ pub fn save_vortex_weights() -> Option<Vec<u8>> {
     for &v in &w.l3_weights { buf.extend_from_slice(&v.to_le_bytes()); }
     // L3 biases
     for &v in &w.l3_biases { buf.extend_from_slice(&v.to_le_bytes()); }
+    // Policy weights
+    for &v in &w.policy_weights { buf.extend_from_slice(&v.to_le_bytes()); }
+    // Policy biases
+    for &v in &w.policy_biases { buf.extend_from_slice(&v.to_le_bytes()); }
 
     Some(buf)
 }
@@ -259,6 +280,9 @@ pub fn init_vortex_empty() {
     // L3
     w.l3_weights.resize(L3_SIZE, 0.0);
     w.l3_biases.resize(NUM_PHASE_BUCKETS, 0.0);
+    // Policy
+    w.policy_weights.resize(POLICY_SIZE * FT_SIZE, 0.0);
+    w.policy_biases.resize(POLICY_SIZE, 0.0);
 
     w.is_loaded = true;
     IS_NNUE_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);

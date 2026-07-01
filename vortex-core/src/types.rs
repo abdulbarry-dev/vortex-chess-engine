@@ -50,6 +50,9 @@ pub const NUM_KING_BUCKETS: usize = 10;
 /// PST_FEATURES = NUM_KING_BUCKETS × FT_SIZE = 10 × 768 = 7 680
 pub const PST_FEATURES: usize = NUM_KING_BUCKETS * FT_SIZE;
 
+/// Size of the Policy Head output (e.g. 1858 for Leela-style encoding)
+pub const POLICY_SIZE: usize = 1858;
+
 /// Threat feature count: ≈ max_attack_pairs × 6 victim types.
 /// The ThreatMap validates this at runtime via `test_threat_features_vs_threat_map`.
 pub const THREAT_FEATURES: usize = 72_000;

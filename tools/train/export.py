@@ -23,6 +23,7 @@ Quantisation scheme (must match Rust constants in types.rs / forward.rs):
     [10..12] PST_FEATURES:u16-LE  = 7680
     [12..16] THREAT_FEATURES:u32-LE = 72000
     [16..20] pst_weight_bytes:u32-LE
+    [20..22] POLICY_SIZE:u16-LE   = 1858
 """
 
 import sys
@@ -42,8 +43,9 @@ L3_SIZE           = 32
 NUM_PHASE_BUCKETS = 16
 PST_FEATURES      = 7_680
 THREAT_FEATURES   = 72_000
+POLICY_SIZE       = 1858
 
-FORMAT_VERSION    = 1
+FORMAT_VERSION    = 2
 
 
 def _q_i16(arr: np.ndarray, scale: float) -> np.ndarray:
@@ -129,9 +131,16 @@ def export_vortex_weights(model, output_path: str):
     l3_bias_f32 = sd["l3_bias.weight"].flatten().astype(np.float32)
     assert l3_bias_f32.shape == (NUM_PHASE_BUCKETS,)
 
+    # ── 11. Policy Head ──
+    policy_w_f32 = sd["policy_weight"].astype(np.float32)  # [1858, 768]
+    assert policy_w_f32.shape == (POLICY_SIZE, FT_SIZE)
+
+    policy_bias_f32 = sd["policy_bias"].flatten().astype(np.float32) # [1858]
+    assert policy_bias_f32.shape == (POLICY_SIZE,)
+
     # ── Write file ──
     with open(output_path, "wb") as f:
-        # Header (20 bytes)
+        # Header (22 bytes)
         f.write(b"VRTX")
         f.write(struct.pack("<B",  FORMAT_VERSION))
         f.write(struct.pack("<H",  FT_SIZE))
@@ -141,6 +150,7 @@ def export_vortex_weights(model, output_path: str):
         f.write(struct.pack("<H",  PST_FEATURES))
         f.write(struct.pack("<I",  THREAT_FEATURES))
         f.write(struct.pack("<I",  pst_weight_bytes))
+        f.write(struct.pack("<H",  POLICY_SIZE))
 
         # 1. PST biases [FT_SIZE × i16]
         f.write(pst_biases_i16.tobytes())
@@ -175,17 +185,25 @@ def export_vortex_weights(model, output_path: str):
         # 11. L3 biases [NUM_PHASE_BUCKETS × f32]
         f.write(l3_bias_f32.tobytes())
 
+        # 12. Policy weights [POLICY_SIZE × FT_SIZE × f32]
+        f.write(policy_w_f32.tobytes())
+
+        # 13. Policy biases [POLICY_SIZE × f32]
+        f.write(policy_bias_f32.tobytes())
+
     size_mb = sum([
         pst_biases_i16.nbytes, pst_w_i16.nbytes, thr_w_i8.nbytes,
         phase_f32.nbytes, l1_w_i8.nbytes, l1_bias_f32.nbytes,
         4,  # l1_quant
         l2_w_f32.nbytes, l2_bias_f32.nbytes,
         l3_w_f32.nbytes, l3_bias_f32.nbytes,
+        policy_w_f32.nbytes, policy_bias_f32.nbytes,
     ]) / 1024 / 1024
 
     print(f"Export complete → {output_path}  ({size_mb:.1f} MB)")
     print(f"  PST:    {pst_w_i16.shape}  i16  ({pst_w_i16.nbytes/1e6:.1f} MB)")
     print(f"  Threat: {thr_w_i8.shape}   i8   ({thr_w_i8.nbytes/1e6:.1f} MB)")
+    print(f"  Policy: {policy_w_f32.shape} f32  ({policy_w_f32.nbytes/1e6:.1f} MB)")
     print(f"  L1:     {l1_w_i8.shape}    i8")
     print(f"  L2:     {l2_w_f32.shape}   f32")
     print(f"  L3:     {l3_w_f32.shape}   f32")
