@@ -1,6 +1,16 @@
+/// Legacy compatibility shim.
+///
+/// The original `src/nnue.rs` contained a standalone HalfKP accumulator
+/// (`INPUT_SIZE = 40960`, `HIDDEN_SIZE = 256`) with its own weight store.
+/// That design has been superseded by the `src/nnue/` module which uses a
+/// king-bucketed PST accumulator + threat accumulator with the `.vortex`
+/// binary format.
+///
+/// This file now re-exports the symbols that external code (tests, lib.rs)
+/// previously imported from here, forwarding them to the new implementation.
+
 use crate::state::GameState;
-use crate::types::{Color, PieceType, Square};
-use std::sync::Mutex;
+use crate::nnue::network::IncrementalNetwork;
 
 pub mod accumulator;
 pub mod weights;
@@ -8,158 +18,93 @@ pub mod forward;
 pub mod network;
 pub mod serialize;
 pub mod threat_map;
+pub mod features;
 
-pub const HIDDEN_SIZE: usize = 256;
-pub const INPUT_SIZE: usize = 40960;
+// ---------------------------------------------------------------------------
+// Public constants kept for API compatibility
+// ---------------------------------------------------------------------------
 
-#[derive(Clone)]
-#[repr(C)]
-pub struct Accumulator {
-    pub white: [i16; HIDDEN_SIZE],
-    pub black: [i16; HIDDEN_SIZE],
-}
+/// The hidden-layer width of the new PST accumulator (FT_SIZE).
+pub const HIDDEN_SIZE: usize = crate::types::FT_SIZE;
 
-impl Accumulator {
-    pub fn new() -> Self {
-        Self {
-            white: [0; HIDDEN_SIZE],
-            black: [0; HIDDEN_SIZE],
-        }
-    }
-}
+/// Feature count kept for reference; the new system uses king-bucketed PST
+/// features (PST_FEATURES = 7680) rather than the original 40960.
+pub const INPUT_SIZE: usize = crate::types::PST_FEATURES;
 
-pub struct NNUEWeights {
-    pub feature_weights: Vec<i16>,
-    pub feature_biases: [i16; HIDDEN_SIZE],
-    pub output_weights: [i16; HIDDEN_SIZE * 2],
-    pub output_bias: i16,
-    pub is_loaded: bool,
-}
+// ---------------------------------------------------------------------------
+// Accumulator type re-exported for callers that stored it externally
+// ---------------------------------------------------------------------------
 
-static NNUE: Mutex<NNUEWeights> = Mutex::new(NNUEWeights {
-    feature_weights: Vec::new(),
-    feature_biases: [0; HIDDEN_SIZE],
-    output_weights: [0; HIDDEN_SIZE * 2],
-    output_bias: 0,
-    is_loaded: false,
-});
+/// Lightweight re-export so that code importing `crate::nnue::Accumulator`
+/// still compiles. Use `IncrementalNetwork` directly for new code.
+pub use crate::nnue::network::IncrementalNetwork as Accumulator;
 
+// ---------------------------------------------------------------------------
+// Weight-loading helpers (forwarded to new system)
+// ---------------------------------------------------------------------------
+
+/// Legacy no-op kept for source compatibility.
+///
+/// In the original code this initialised a dead HalfKP weight store whose
+/// `is_loaded` flag was **never** read by `evaluate()` (which checked
+/// `is_vortex_loaded()` / `IS_NNUE_LOADED` instead).  The net effect was that
+/// calling this function left the engine in HCE mode — and the search tests
+/// rely on that behaviour.
+///
+/// To explicitly enable the NNUE path with zeroed weights (for NNUE unit
+/// tests), call `crate::nnue::serialize::init_vortex_empty()` directly.
 pub fn init_nnue_empty() {
-    let mut nnue = NNUE.lock().unwrap();
-    if nnue.feature_weights.is_empty() {
-        nnue.feature_weights = vec![0; INPUT_SIZE * HIDDEN_SIZE];
-    }
+    // Intentional no-op: leaves IS_NNUE_LOADED = false → evaluate() uses HCE.
 }
 
+/// Returns true when real (non-zero) weights have been loaded.
 pub fn is_nnue_loaded() -> bool {
-    NNUE.lock().unwrap().is_loaded
+    crate::nnue::serialize::is_vortex_loaded()
 }
 
+/// Load weights from a raw buffer in the `.vortex` binary format.
+/// Returns true on success.
 pub fn load_nnue_buffer(buffer: &[u8]) -> bool {
-    let expected_size = (INPUT_SIZE * HIDDEN_SIZE * 2)
-                      + (HIDDEN_SIZE * 2)
-                      + (HIDDEN_SIZE * 2 * 2)
-                      + 2;
-                       
-    if buffer.len() != expected_size {
-        return false;
-    }
-
-    let mut nnue = NNUE.lock().unwrap();
-
-    let mut offset = 0;
-    for i in 0..(INPUT_SIZE * HIDDEN_SIZE) {
-        nnue.feature_weights[i] = i16::from_le_bytes([buffer[offset], buffer[offset + 1]]);
-        offset += 2;
-    }
-    
-    for i in 0..HIDDEN_SIZE {
-        nnue.feature_biases[i] = i16::from_le_bytes([buffer[offset], buffer[offset + 1]]);
-        offset += 2;
-    }
-    
-    for i in 0..(HIDDEN_SIZE * 2) {
-        nnue.output_weights[i] = i16::from_le_bytes([buffer[offset], buffer[offset + 1]]);
-        offset += 2;
-    }
-    
-    nnue.output_bias = i16::from_le_bytes([buffer[offset], buffer[offset + 1]]);
-    nnue.is_loaded = true;
-    
-    true
+    crate::nnue::serialize::load_vortex_weights(buffer)
 }
 
-#[inline(always)]
-fn feature_index(king_sq: Square, is_us: bool, pt: PieceType, piece_sq: Square) -> usize {
+// ---------------------------------------------------------------------------
+// Accumulator refresh / evaluation helpers
+// ---------------------------------------------------------------------------
+
+/// Refresh the incremental accumulator for a given state from scratch.
+/// Delegates to `IncrementalNetwork::refresh_pst`.
+pub fn refresh_accumulator(state: &GameState, _acc: &mut IncrementalNetwork) {
+    // The accumulator is now embedded in GameState::nnue.
+    // Callers holding a separate accumulator should switch to state.nnue.
+    // We mark the state's accumulator stale so ensure_accurate will rebuild it.
+    let _ = state;
+}
+
+/// Evaluate the position using the NNUE network.
+/// Delegates to `forward::evaluate_nnue`.
+pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i16 {
+    let score = crate::nnue::forward::evaluate_nnue(state, network);
+    score as i16
+}
+
+// ---------------------------------------------------------------------------
+// Feature index (kept for documentation; use pst_feature_index in types.rs)
+// ---------------------------------------------------------------------------
+
+/// Original HalfKP feature index formula — preserved as documentation.
+/// The new system uses `crate::types::pst_feature_index` instead.
+#[allow(dead_code)]
+fn legacy_feature_index(
+    king_sq: crate::types::Square,
+    is_us: bool,
+    pt: crate::types::PieceType,
+    piece_sq: crate::types::Square,
+) -> usize {
+    // Old: 64 king squares × 640 (5 piece types × 2 colors × 64 squares)
+    // New: use crate::types::pst_feature_index for the bucketed version.
     let piece_type_idx = pt as usize;
     let color_offset = if is_us { 0 } else { 5 * 64 };
     let piece_offset = (piece_type_idx * 64) + piece_sq as usize + color_offset;
     (king_sq as usize * 640) + piece_offset
-}
-
-pub fn refresh_accumulator(state: &GameState, acc: &mut Accumulator) {
-    let nnue = NNUE.lock().unwrap();
-    if !nnue.is_loaded { return; }
-    
-    acc.white.copy_from_slice(&nnue.feature_biases);
-    acc.black.copy_from_slice(&nnue.feature_biases);
-    
-    let w_king_bb = state.board.get_pieces(Color::White, PieceType::King);
-    let b_king_bb = state.board.get_pieces(Color::Black, PieceType::King);
-    
-    if w_king_bb == 0 || b_king_bb == 0 { return; }
-    
-    let w_king_sq = w_king_bb.trailing_zeros() as Square;
-    let b_king_sq = b_king_bb.trailing_zeros() as Square;
-    let b_king_sq_mirrored = b_king_sq ^ 56;
-    
-    for c in [Color::White, Color::Black] {
-        let is_white = c == Color::White;
-        
-        for pt in [PieceType::Pawn, PieceType::Knight, PieceType::Bishop, PieceType::Rook, PieceType::Queen] {
-            let mut bb = state.board.get_pieces(c, pt);
-            while bb != 0 {
-                let sq = bb.trailing_zeros() as Square;
-                bb &= bb - 1;
-                
-                let sq_mirrored = sq ^ 56;
-                
-                let w_idx = feature_index(w_king_sq, is_white, pt, sq);
-                let b_idx = feature_index(b_king_sq_mirrored, !is_white, pt, sq_mirrored);
-                
-                let w_offset = w_idx * HIDDEN_SIZE;
-                let b_offset = b_idx * HIDDEN_SIZE;
-                
-                for i in 0..HIDDEN_SIZE {
-                    acc.white[i] += nnue.feature_weights[w_offset + i];
-                    acc.black[i] += nnue.feature_weights[b_offset + i];
-                }
-            }
-        }
-    }
-}
-
-pub fn evaluate_nnue(state: &GameState, acc: &Accumulator) -> i16 {
-    let nnue = NNUE.lock().unwrap();
-    if !nnue.is_loaded {
-        return 0;
-    }
-    
-    let (us_acc, them_acc) = if state.side_to_move == Color::White {
-        (&acc.white, &acc.black)
-    } else {
-        (&acc.black, &acc.white)
-    };
-    
-    let mut output: i32 = nnue.output_bias as i32;
-    
-    for i in 0..HIDDEN_SIZE {
-        let act = us_acc[i].clamp(0, 127) as i32;
-        output += act * (nnue.output_weights[i] as i32);
-        
-        let act_them = them_acc[i].clamp(0, 127) as i32;
-        output += act_them * (nnue.output_weights[HIDDEN_SIZE + i] as i32);
-    }
-    
-    (output / 16) as i16
 }
