@@ -66,7 +66,7 @@ fn test_search_depth_1() {
     let mut killers = [[Move(0); 2]; MAX_PLY as usize];
     let mut history = [[[0i32; 64]; 64]; 2];
 
-    let score = search_position(state, 1, -30000, 30000, 0, &mut tt, &mut ctrl, &mut killers, &mut history);
+    let score = search_position(&mut state, 1, -30000, 30000, 0, &mut tt, &mut ctrl, &mut killers, &mut history);
     
     assert!(ctrl.nodes > 20);
     assert!(score >= -100 && score <= 100);

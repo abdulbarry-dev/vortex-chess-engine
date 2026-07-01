@@ -42,3 +42,4 @@ impl VortexWeights {
 }
 
 pub static WEIGHTS: Mutex<VortexWeights> = Mutex::new(VortexWeights::new());
+pub static IS_NNUE_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

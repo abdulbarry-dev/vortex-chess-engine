@@ -39,6 +39,8 @@ pub struct SearchControl {
 impl SearchControl {
     pub fn time_up(&self) -> bool {
         if self.time_limit_ms == 0 { return false; }
+        // Optimization: Only cross WASM boundary to JS Date::now() every 2048 nodes
+        if self.nodes % 2048 != 0 { return false; }
         current_time_ms() - self.start_time_ms >= self.time_limit_ms
     }
 }
@@ -91,7 +93,7 @@ fn score_move(m: Move, state: &GameState, tt_move: Move, ply: i8, killers: &[[Mo
     }
 
     let hist = history[state.side_to_move as usize][m.from() as usize][m.to() as usize];
-    let mut base_score = hist.min(100_000);
+    let base_score = hist.min(100_000);
 
     swindle.modify_move_ordering(m, base_score, state)
 }
@@ -128,10 +130,11 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
             let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
             if is_square_attacked_by(&state.board, pass_through, them) { continue; }
         }
-        let mut next = state.clone();
-        next.make_move(m);
-        let opp = next.side_to_move.opposite();
-        if is_in_check_color(&next, opp) { continue; }
+        let undo = state.make_move(m);
+        let opp = state.side_to_move.opposite();
+        let in_check = is_in_check_color(state, opp);
+        state.unmake_move(m, &undo);
+        if in_check { continue; }
         move_list.moves[legal_count] = m;
         legal_count += 1;
     }
@@ -147,20 +150,21 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
     let contempt = crate::contempt::compute_contempt(eval_score);
     let _variance_tracker = VarianceTracker::new();
 
-    let mut sorted_indices: Vec<usize> = (0..move_list.count).collect();
-    sorted_indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], state, Move(0), 0, &killers, &history, &swindle, contempt);
-        let sb = score_move(move_list.moves[b], state, Move(0), 0, &killers, &history, &swindle, contempt);
-        sb.cmp(&sa)
-    });
-    let mut sorted_moves: [Move; 256] = [Move(0); 256];
-    for (i, &idx) in sorted_indices.iter().enumerate() {
-        sorted_moves[i] = move_list.moves[idx];
+    let mut move_scores = [0i32; 256];
+    for i in 0..move_list.count {
+        move_scores[i] = score_move(move_list.moves[i], state, Move(0), 0, &killers, &history, &swindle, contempt);
     }
-    move_list.moves = sorted_moves;
+    for i in 1..move_list.count {
+        let mut j = i;
+        while j > 0 && move_scores[j] > move_scores[j - 1] {
+            move_scores.swap(j, j - 1);
+            move_list.moves.swap(j, j - 1);
+            j -= 1;
+        }
+    }
 
     for i in 0..move_list.count {
-        if ctrl.stop || ctrl.time_up() { break; }
+        if ctrl.stop || ctrl.time_up() { ctrl.stop = true; break; }
 
         let m = move_list.moves[i];
         let flag = m.flag();
@@ -174,29 +178,31 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
             let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
             if is_square_attacked_by(&state.board, pass_through, them) { continue; }
         }
-        let mut next_state = state.clone();
-        next_state.make_move(m);
+        let undo = state.make_move(m);
+        let opp = state.side_to_move.opposite();
+        if is_in_check_color(state, opp) {
+            state.unmake_move(m, &undo);
+            continue;
+        }
 
-        let opp = next_state.side_to_move.opposite();
-        if is_in_check_color(&next_state, opp) { continue; }
-
-        if ctrl.stop || ctrl.time_up() { break; }
+        if ctrl.stop || ctrl.time_up() { 
+            ctrl.stop = true;
+            state.unmake_move(m, &undo);
+            break; 
+        }
 
         let mut score;
         if i == 0 {
-            score = -search_position(next_state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
+            score = -search_position(state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
         } else {
-            score = -search_position(next_state, depth - 1, -alpha - 1, -alpha, 1, tt, ctrl, &mut killers, &mut history);
+            score = -search_position(state, depth - 1, -alpha - 1, -alpha, 1, tt, ctrl, &mut killers, &mut history);
             if score > alpha && score < beta {
-                let mut re_state = state.clone();
-                re_state.make_move(m);
-                let opp2 = re_state.side_to_move.opposite();
-                if !is_in_check_color(&re_state, opp2) {
-                    let new_score = -search_position(re_state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
-                    score = new_score;
-                }
+                score = -search_position(state, depth - 1, -beta, -alpha, 1, tt, ctrl, &mut killers, &mut history);
             }
         }
+        state.unmake_move(m, &undo);
+
+        if ctrl.stop { break; }
 
         if score > best_score {
             best_score = score;
@@ -221,20 +227,21 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
     }
 }
 
-pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
-    if ctrl.stop || ctrl.nodes > 10_000_000 || ctrl.time_up() {
+pub fn search_position(state: &mut GameState, depth: i8, mut alpha: i16, beta: i16, ply: i8, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+    if ctrl.stop || ctrl.time_up() {
+        ctrl.stop = true;
         return 0;
     }
 
     ctrl.nodes += 1;
 
     if ply >= MAX_PLY {
-        return evaluate(&mut state);
+        return evaluate(state);
     }
 
     let is_draw = state.halfmove_clock >= 100 || is_insufficient_material(&state) || is_repetition(&state);
     if is_draw {
-        let eval_score = evaluate(&mut state);
+        let eval_score = evaluate(state);
         let contempt = crate::contempt::compute_contempt(eval_score);
         return if contempt >= 0 { 0 } else { contempt };
     }
@@ -257,14 +264,18 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
 
     if depth >= 3 && !is_in_check(&state) && has_major_pieces(&state, state.side_to_move) {
         let mut ns = state.clone();
+        ns.hash ^= crate::zobrist::get_zobrist().side_to_move_key;
+        if let Some(f) = ns.en_passant_sq {
+            ns.hash ^= crate::zobrist::get_zobrist().en_passant_keys[(f % 8) as usize];
+        }
         ns.side_to_move = ns.side_to_move.opposite();
         ns.en_passant_sq = None;
         let r = if depth > 6 { 3 } else { 2 };
-        let null_score = -search_position(ns, depth - 1 - r, -beta, -beta + 1, ply + 1, tt, ctrl, killers, history);
+        let null_score = -search_position(&mut ns, depth - 1 - r, -beta, -beta + 1, ply + 1, tt, ctrl, killers, history);
         
         if null_score >= beta { return beta; }
         
-        let current_eval = evaluate(&mut state);
+        let current_eval = evaluate(state);
         let threat_delta = current_eval - null_score;
         if threat_delta > 200 {
             state.threat_delta = threat_delta;
@@ -275,22 +286,21 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
 
     let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
 
-    let eval_score = evaluate(&mut state);
+    let eval_score = evaluate(state);
     let swindle = SwindleMode::new(eval_score);
     let contempt = crate::contempt::compute_contempt(eval_score);
-    let mut indices: Vec<usize> = (0..move_list.count).collect();
-    indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], &state, tt_move, ply, killers, history, &swindle, contempt);
-        let sb = score_move(move_list.moves[b], &state, tt_move, ply, killers, history, &swindle, contempt);
-        sb.cmp(&sa)
-    });
-    let mut sorted: [Move; 256] = [Move(0); 256];
-    for (i, &idx) in indices.iter().enumerate() {
-        sorted[i] = move_list.moves[idx];
+    let mut move_scores = [0i32; 256];
+    for i in 0..move_list.count {
+        move_scores[i] = score_move(move_list.moves[i], state, tt_move, ply, killers, history, &swindle, contempt);
     }
-    let num_moves = move_list.count;
-    move_list.moves = sorted;
-    move_list.count = num_moves;
+    for i in 1..move_list.count {
+        let mut j = i;
+        while j > 0 && move_scores[j] > move_scores[j - 1] {
+            move_scores.swap(j, j - 1);
+            move_list.moves.swap(j, j - 1);
+            j -= 1;
+        }
+    }
 
     let in_check = is_in_check(&state);
     let mut best_score = -INFINITY - 1;
@@ -300,7 +310,7 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
     let moves_evaluated = move_list.count.min(if in_check { 256 } else { 64 });
 
     for i in 0..moves_evaluated {
-        if ctrl.stop || ctrl.time_up() { break; }
+        if ctrl.stop || ctrl.time_up() { ctrl.stop = true; break; }
 
         let m = move_list.moves[i];
 
@@ -315,34 +325,38 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
             let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
             if is_square_attacked_by(&state.board, pass_through, them) { continue; }
         }
-        let mut next_state = state.clone();
-        next_state.make_move(m);
-
-        let opp = next_state.side_to_move.opposite();
-        if is_in_check_color(&next_state, opp) { continue; }
+        let undo = state.make_move(m);
+        let opp = state.side_to_move.opposite();
+        if is_in_check_color(state, opp) {
+            state.unmake_move(m, &undo);
+            continue;
+        }
 
         legal_moves += 1;
 
         let mut score;
         if legal_moves == 1 {
-            score = -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
+            score = -search_position(state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
         } else {
             if !in_check && depth >= 3 && legal_moves > 4 && !m.is_capture() && !m.is_promotion() && m != tt_move {
                 let lmr_base = legal_moves.min(64) as f32;
                 let reduction = (lmr_base.ln() / 2.0f32.ln()).round() as i8;
                 let reduced = (depth - 1 - reduction).max(0);
-                score = -search_position(next_state.clone(), reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+                score = -search_position(state, reduced, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
                 if score > alpha {
-                    score = -search_position(next_state.clone(), depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+                    score = -search_position(state, depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
                 }
             } else {
-                score = -search_position(next_state.clone(), depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
+                score = -search_position(state, depth - 1, -alpha - 1, -alpha, ply + 1, tt, ctrl, killers, history);
             }
 
             if score > alpha && score < beta {
-                score = -search_position(next_state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
+                score = -search_position(state, depth - 1, -beta, -alpha, ply + 1, tt, ctrl, killers, history);
             }
         }
+        state.unmake_move(m, &undo);
+
+        if ctrl.stop { break; }
 
         if score > best_score {
             best_score = score;
@@ -367,6 +381,8 @@ pub fn search_position(mut state: GameState, depth: i8, mut alpha: i16, beta: i1
         if in_check { return -MATE_SCORE + ply as i16; }
         return DRAW_SCORE;
     }
+
+    if ctrl.stop { return 0; }
 
     let bound = if best_score <= original_alpha { TT_ALPHA }
                else if best_score >= beta { TT_BETA }
@@ -488,14 +504,15 @@ fn has_major_pieces(state: &GameState, color: Color) -> bool {
     pieces != 0
 }
 
-fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
-    if ctrl.stop || ctrl.nodes > 20_000_000 || ctrl.time_up() {
+fn quiescence_search(state: &mut GameState, mut alpha: i16, beta: i16, tt: &mut TranspositionTable, ctrl: &mut SearchControl, killers: &mut [[Move; 2]; MAX_PLY as usize], history: &mut [[[i32; 64]; 64]; 2]) -> i16 {
+    if ctrl.stop || ctrl.time_up() {
+        ctrl.stop = true;
         return 0;
     }
 
     ctrl.nodes += 1;
 
-    let stand_pat = evaluate(&mut state);
+    let stand_pat = evaluate(state);
     if stand_pat >= beta { return beta; }
     if alpha < stand_pat { alpha = stand_pat; }
 
@@ -503,22 +520,21 @@ fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut T
 
     let swindle = SwindleMode::new(stand_pat);
     let contempt = crate::contempt::compute_contempt(stand_pat);
-    let mut indices: Vec<usize> = (0..move_list.count).collect();
-    indices.sort_unstable_by(|&a, &b| {
-        let sa = score_move(move_list.moves[a], &state, Move(0), 0, killers, history, &swindle, contempt);
-        let sb = score_move(move_list.moves[b], &state, Move(0), 0, killers, history, &swindle, contempt);
-        sb.cmp(&sa)
-    });
-    let mut sorted: [Move; 256] = [Move(0); 256];
-    for (i, &idx) in indices.iter().enumerate() {
-        sorted[i] = move_list.moves[idx];
+    let mut move_scores = [0i32; 256];
+    for i in 0..move_list.count {
+        move_scores[i] = score_move(move_list.moves[i], state, Move(0), 0, killers, history, &swindle, contempt);
     }
-    let num_moves = move_list.count;
-    move_list.moves = sorted;
-    move_list.count = num_moves;
+    for i in 1..move_list.count {
+        let mut j = i;
+        while j > 0 && move_scores[j] > move_scores[j - 1] {
+            move_scores.swap(j, j - 1);
+            move_list.moves.swap(j, j - 1);
+            j -= 1;
+        }
+    }
 
     for i in 0..move_list.count {
-        if ctrl.stop || ctrl.time_up() { break; }
+        if ctrl.stop || ctrl.time_up() { ctrl.stop = true; break; }
 
         let m = move_list.moves[i];
         if !m.is_capture() && !m.is_promotion() { continue; }
@@ -536,13 +552,17 @@ fn quiescence_search(mut state: GameState, mut alpha: i16, beta: i16, tt: &mut T
             let pass_through = if flag == crate::move_core::FLAG_KING_CASTLE { kingside_sq } else { queenside_sq };
             if is_square_attacked_by(&state.board, pass_through, them) { continue; }
         }
-        let mut next_state = state.clone();
-        next_state.make_move(m);
+        let undo = state.make_move(m);
+        let opp = state.side_to_move.opposite();
+        if is_in_check_color(state, opp) {
+            state.unmake_move(m, &undo);
+            continue;
+        }
 
-        let opp = next_state.side_to_move.opposite();
-        if is_in_check_color(&next_state, opp) { continue; }
+        let score = -quiescence_search(state, -beta, -alpha, tt, ctrl, killers, history);
+        state.unmake_move(m, &undo);
 
-        let score = -quiescence_search(next_state, -beta, -alpha, tt, ctrl, killers, history);
+        if ctrl.stop { break; }
 
         if score >= beta { return beta; }
         if score > alpha { alpha = score; }

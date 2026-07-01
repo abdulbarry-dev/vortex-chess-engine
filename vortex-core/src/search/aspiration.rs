@@ -32,9 +32,9 @@ pub fn search_with_windowing(
             return result;
         }
 
-        if ctrl.stop || ctrl.time_up() { break; }
+        if ctrl.stop || ctrl.time_up() { 
+            ctrl.stop = true;
+            return result; 
+        }
     }
-
-    // Fallback: full window
-    search_root_internal(state, depth, -INFINITY, INFINITY, tt, ctrl)
 }

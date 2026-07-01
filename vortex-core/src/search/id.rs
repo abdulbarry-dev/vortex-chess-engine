@@ -1,6 +1,6 @@
 use crate::state::GameState;
 use crate::tt::TranspositionTable;
-use crate::search::{SearchControl, SearchResult};
+use crate::search::SearchControl;
 use crate::search::aspiration::search_with_windowing;
 use crate::move_core::Move;
 
@@ -22,7 +22,7 @@ pub struct SearchStats {
 pub fn search_root_id(
     state: &mut GameState,
     max_depth: i8,
-    time_limit_ms: u64,
+    _time_limit_ms: u64,
     tt: &mut TranspositionTable,
     ctrl: &mut SearchControl,
 ) -> SearchStats {
