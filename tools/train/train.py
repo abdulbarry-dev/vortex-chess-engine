@@ -217,9 +217,8 @@ class VortexNNUE(nn.Module):
       • Dual-accumulator PST + Threat (EmbeddingBag, mode='sum')
       • 16 phase embeddings (additive FT bias)
       • Multiplicative SCReLU feature transformer
-      • L1 [FT_SIZE → L2_SIZE] (quantised), per-phase bias
-      • L2 [L2_SIZE → L3_SIZE] (f32), per-phase bias
-      • L3 [L3_SIZE → 1]       (f32), per-phase bias
+      • Value Head: L1 [FT_SIZE → L2_SIZE], L2, L3 → 1 (centipawns)
+      • Policy Head: Linear [FT_SIZE → 1858] → Softmax
     """
 
     def __init__(self):
@@ -237,9 +236,13 @@ class VortexNNUE(nn.Module):
         self.l2_bias = nn.Embedding(NUM_PHASE_BUCKETS, L3_SIZE)
         self.l3_bias = nn.Embedding(NUM_PHASE_BUCKETS, 1)
 
-        # L2 and L3
+        # L2 and L3 (Value Head)
         self.l2_weight = nn.Parameter(torch.empty(L3_SIZE, L2_SIZE))
         self.l3_weight = nn.Parameter(torch.empty(1, L3_SIZE))
+
+        # Policy Head (FT_SIZE -> 1858 moves)
+        self.policy_weight = nn.Parameter(torch.empty(1858, FT_SIZE))
+        self.policy_bias = nn.Parameter(torch.empty(1858))
 
         self._init_weights()
 
@@ -262,6 +265,10 @@ class VortexNNUE(nn.Module):
         # L3 output should be in centipawn range (~[-5,+5] before ×100)
         nn.init.uniform_(self.l3_weight, -0.01, 0.01)
 
+        # Policy Head initialization
+        nn.init.kaiming_uniform_(self.policy_weight, a=math.sqrt(5))
+        nn.init.zeros_(self.policy_bias)
+
     def _screlu(self, pst_acc, threat_acc, phase_bias):
         """
         SCReLU (plan §1.3):
@@ -280,7 +287,7 @@ class VortexNNUE(nn.Module):
         thr_w / thr_b : (indices, offsets) for EmbeddingBag
         phase         : [B] long, 0-15
         stm           : [B] long, 0=white 1=black
-        returns       : [B] float  (centipawn estimate, STM perspective)
+        returns       : tuple (value_out: [B] float, policy_out: [B, 1858] float logits)
 
         NOTE: In float-space training we do NOT apply DEQUANT — that's only
         applied at export time when weights are quantised to int8/int16.
@@ -309,8 +316,13 @@ class VortexNNUE(nn.Module):
         l2_out = (l1_out @ self.l2_weight.t() + self.l2_bias(phase)).clamp(0.0, 1.0)
 
         # L3 → scalar centipawns
-        out = (l2_out @ self.l3_weight.t() + self.l3_bias(phase)).squeeze(-1)  # [B]
-        return out * 100.0
+        value_out = (l2_out @ self.l3_weight.t() + self.l3_bias(phase)).squeeze(-1)  # [B]
+        value_out = value_out * 100.0
+
+        # Policy Head: Branching directly from ft_stm
+        policy_logits = ft_stm @ self.policy_weight.t() + self.policy_bias  # [B, 1858]
+        
+        return value_out, policy_logits
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +348,21 @@ def wdl_loss(pred_cp, target_cp, target_result, lambda_wdl=0.7):
     loss_result = nn.functional.mse_loss(pred_wdl, target_result)
     return (1 - lambda_wdl) * loss_score + lambda_wdl * loss_result
 
+def combined_loss(pred_cp, pred_policy, target_cp, target_result, target_policy, lambda_wdl=0.7):
+    """
+    Combined loss for Vortex Zero: Value Loss (MSE) + Policy Loss (Cross Entropy)
+    """
+    v_loss = wdl_loss(pred_cp, target_cp, target_result, lambda_wdl)
+    
+    # If target_policy is missing or dummy (e.g. -1), we can ignore policy loss for this batch
+    if target_policy is None or (target_policy == -1).all():
+        return v_loss, v_loss, torch.tensor(0.0, device=pred_cp.device)
+        
+    p_loss = nn.functional.cross_entropy(pred_policy, target_policy)
+    
+    total_loss = v_loss + p_loss
+    return total_loss, v_loss, p_loss
+
 
 # ---------------------------------------------------------------------------
 # Training loop
@@ -353,6 +380,7 @@ def move_batch(batch, device):
         "score":  to_dev(batch["score"]),
         "result": to_dev(batch["result"]),
         "stm":    to_dev(batch["stm"]),
+        "target_policy": torch.full((batch["stm"].shape[0],), -1, dtype=torch.long, device=device) # Dummy policy for now
     }
 
 
@@ -396,13 +424,13 @@ def train(args):
             b = move_batch(batch, device)
             optimizer.zero_grad()
 
-            pred = model(
+            pred_value, pred_policy = model(
                 b["pst_w"], b["pst_b"],
                 b["thr_w"], b["thr_b"],
                 b["phase"], b["stm"],
             )
 
-            loss = wdl_loss(pred, b["score"], b["result"])
+            loss, v_loss, p_loss = combined_loss(pred_value, pred_policy, b["score"], b["result"], b["target_policy"])
             loss.backward()
 
             # Gradient clipping for stability
