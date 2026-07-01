@@ -36,3 +36,25 @@ Modify `vortex-core/tests/search_test.rs` to fix the failing `test_search_depth_
 2. Run `cargo test --manifest-path vortex-core/Cargo.toml` to verify that all Rust tests now pass.
 3. Run `npm test` to verify that all Vitest tests pass.
 4. Stage, commit, and push the change to `origin/VORTEX-2.0` so that the repository is clean and all tests are passing. Do not modify any files in `vortex-core/src/` or other codebase source files.
+
+## 2026-07-01T21:16:19Z
+
+Analyse the core Rust search and evaluation logic of Vortex Chess Engine (VORTEX-2.0) to identify hidden bugs, missing features, and performance bottlenecks that negatively impact its Elo rating.
+
+Working directory: /home/vortex/Desktop/Projects/vortex-chess-engine
+Integrity mode: development
+
+## Requirements
+
+### R1. Deep Codebase Analysis (Rust Core)
+Conduct a thorough analysis of the engine's core Rust components (`vortex-core/src/search` and evaluation logic). Look specifically for logical flaws, missing standard chess heuristics, and algorithmic bottlenecks.
+
+### R2. Diagnostic Report & Patches
+Provide a detailed diagnostic report artifact. Instead of autonomously modifying the live codebase, the team must provide concrete code patches, snippets, and step-by-step explanations for each identified issue so they can be manually reviewed and applied.
+
+## Acceptance Criteria
+
+### Diagnostics
+- [ ] The team delivers a detailed artifact listing at least 3 distinct, verifiable weak points in the core Rust engine.
+- [ ] For each weak point, a concrete code patch or snippet is provided.
+- [ ] The proposed fixes must be syntactically valid Rust and must theoretically not break the existing test suite (`cargo test`).
