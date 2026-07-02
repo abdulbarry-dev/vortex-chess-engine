@@ -1,5 +1,5 @@
 use crate::nnue::accumulator::{PstAccumulator, ThreatAccumulator, ThreatDelta};
-use crate::nnue::weights::WEIGHTS;
+//
 use crate::nnue::threat_map::get_threat_map;
 use crate::types::{Color, PieceType, Square, FT_SIZE, pst_feature_index};
 
@@ -59,7 +59,7 @@ impl IncrementalNetwork {
     /// Iterates every piece on the board, computes the king-bucketed HalfKP feature
     /// index for both White and Black perspectives, and adds the weight row.
     pub fn refresh_pst(&mut self, board: &crate::board::Board) {
-        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        let weights = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
         if !weights.is_loaded {
             return;
         }
@@ -139,7 +139,7 @@ impl IncrementalNetwork {
             return;
         }
 
-        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        let weights = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
 
         let w_king_sq = board.get_pieces(Color::White, PieceType::King).trailing_zeros() as Square;
         let b_king_sq = (board.get_pieces(Color::Black, PieceType::King).trailing_zeros() as Square) ^ 56;
@@ -198,7 +198,7 @@ impl IncrementalNetwork {
             return;
         }
 
-        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        let weights = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
 
         let w_king_sq = board.get_pieces(Color::White, PieceType::King).trailing_zeros() as Square;
         let b_king_sq = (board.get_pieces(Color::Black, PieceType::King).trailing_zeros() as Square) ^ 56;
@@ -258,7 +258,7 @@ impl IncrementalNetwork {
         add: bool,
     ) {
         // Attacks by `piece` on opposite-colour pieces.
-        let attacks = Self::get_attacks(piece, color, sq, board.occupancies[2]);
+        let attacks = Self::get_attacks(piece, color, sq, 0);
         let mut bb = attacks & board.occupancies[color.opposite() as usize];
         while bb != 0 {
             let to_sq = bb.trailing_zeros() as Square;
@@ -282,7 +282,7 @@ impl IncrementalNetwork {
             while enemy_bb != 0 {
                 let e_sq = enemy_bb.trailing_zeros() as Square;
                 enemy_bb &= enemy_bb - 1;
-                let e_attacks = Self::get_attacks(pt, them, e_sq, board.occupancies[2]);
+                let e_attacks = Self::get_attacks(pt, them, e_sq, 0);
                 if (e_attacks & (1u64 << sq)) != 0 {
                     self.push_threat_delta(ThreatDelta::new(pt, e_sq, piece, sq, add));
                 }
@@ -336,7 +336,7 @@ impl IncrementalNetwork {
     ///   - Black perspective (persp 1): flip both `from_sq` and `to_sq` with `^ 56`
     ///     before the ThreatMap lookup so the geometry is mirrored correctly.
     pub fn apply_threat_deltas(&mut self) {
-        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        let weights = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
         if !weights.is_loaded {
             return;
         }
@@ -405,7 +405,7 @@ impl IncrementalNetwork {
 
 
     pub fn refresh_threats(&mut self, board: &crate::board::Board) {
-        let weights = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+        let weights = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
         if !weights.is_loaded {
             return;
         }

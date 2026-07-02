@@ -18,10 +18,11 @@ Requirements:
         record_count:u32  4 bytes  LE
     Per record:
         hash:u64          8 bytes  (not used during training)
-        score:i16         2 bytes  STM centipawns, clamped ±29000
         phase:u8          1 byte   0-15 (phase bucket)
-        result:u8         1 byte   0=draw 1=white_wins 2=black_wins
+        result:i8         1 byte   0=draw 1=white_wins -1=black_wins
+        bonus:i16         2 bytes  defensive bonus
         stm:u8            1 byte   0=white 1=black
+        padding:bytes     27 bytes
         blob_len:u32      4 bytes  feature blob byte length
         blob:bytes        N bytes  encode_features() output
             pst_w_count:u16
@@ -110,10 +111,11 @@ def parse_vdata_file(path: str):
             break
 
         _hash   = struct.unpack_from("<Q", data, off)[0]; off += 8
-        score   = struct.unpack_from("<h", data, off)[0]; off += 2  # i16
         phase   = data[off]; off += 1
-        result  = data[off]; off += 1
+        result  = struct.unpack_from("<b", data, off)[0]; off += 1
+        bonus   = struct.unpack_from("<h", data, off)[0]; off += 2
         stm     = data[off]; off += 1
+        off += 27 # padding
         blob_len = struct.unpack_from("<I", data, off)[0]; off += 4
 
         blob = data[off: off + blob_len]; off += blob_len
@@ -137,7 +139,7 @@ def parse_vdata_file(path: str):
             result_stm = 0.0 if stm == 0 else 1.0
 
         yield {
-            "score":   score,
+            "score":   0, # Dummy score as it's no longer used
             "phase":   phase,
             "result":  result_stm,
             "stm":     stm,
@@ -265,8 +267,8 @@ class VortexNNUE(nn.Module):
         # L3 output should be in centipawn range (~[-5,+5] before ×100)
         nn.init.uniform_(self.l3_weight, -0.01, 0.01)
 
-        # Policy Head initialization
-        nn.init.kaiming_uniform_(self.policy_weight, a=math.sqrt(5))
+        # Policy Head initialization (zeroed out so it doesn't affect search until we train it)
+        nn.init.zeros_(self.policy_weight)
         nn.init.zeros_(self.policy_bias)
 
     def _screlu(self, pst_acc, threat_acc, phase_bias):
@@ -315,9 +317,8 @@ class VortexNNUE(nn.Module):
         # L2
         l2_out = (l1_out @ self.l2_weight.t() + self.l2_bias(phase)).clamp(0.0, 1.0)
 
-        # L3 → scalar centipawns
+        # L3 → scalar win probability logit
         value_out = (l2_out @ self.l3_weight.t() + self.l3_bias(phase)).squeeze(-1)  # [B]
-        value_out = value_out * 100.0
 
         # Policy Head: Branching directly from ft_stm
         policy_logits = ft_stm @ self.policy_weight.t() + self.policy_bias  # [B, 1858]
@@ -326,37 +327,26 @@ class VortexNNUE(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Loss: WDL-blended MSE (common in Stockfish NNUE training)
+# Loss: RL Outcome loss
 # ---------------------------------------------------------------------------
 
-def wdl_loss(pred_cp, target_cp, target_result, lambda_wdl=0.7):
+def outcome_loss(pred_logit, target_result):
     """
-    Loss = (1 - λ) × MSE(sigmoid(pred), sigmoid(target))
-         +      λ  × MSE(sigmoid(pred), result)
-    where sigmoid maps centipawns → win probability.
-
-    Mate scores (±29000) are clamped to ±SCORE_CLAMP before sigmoid
-    to prevent complete saturation which zeroes the gradient.
+    Loss = MSE(sigmoid(pred_logit), result)
     """
-    def sigmoid_cp(x):
-        return torch.sigmoid(x.clamp(-SCORE_CLAMP, SCORE_CLAMP) / SIGMOID_SCALE)
-
-    pred_wdl   = sigmoid_cp(pred_cp)
-    target_wdl = sigmoid_cp(target_cp)
-
-    loss_score  = nn.functional.mse_loss(pred_wdl, target_wdl)
+    pred_wdl = torch.sigmoid(pred_logit)
     loss_result = nn.functional.mse_loss(pred_wdl, target_result)
-    return (1 - lambda_wdl) * loss_score + lambda_wdl * loss_result
+    return loss_result
 
-def combined_loss(pred_cp, pred_policy, target_cp, target_result, target_policy, lambda_wdl=0.7):
+def combined_loss(pred_logit, pred_policy, target_result, target_policy):
     """
     Combined loss for Vortex Zero: Value Loss (MSE) + Policy Loss (Cross Entropy)
     """
-    v_loss = wdl_loss(pred_cp, target_cp, target_result, lambda_wdl)
+    v_loss = outcome_loss(pred_logit, target_result)
     
     # If target_policy is missing or dummy (e.g. -1), we can ignore policy loss for this batch
     if target_policy is None or (target_policy == -1).all():
-        return v_loss, v_loss, torch.tensor(0.0, device=pred_cp.device)
+        return v_loss, v_loss, torch.tensor(0.0, device=pred_logit.device)
         
     p_loss = nn.functional.cross_entropy(pred_policy, target_policy)
     
@@ -430,7 +420,7 @@ def train(args):
                 b["phase"], b["stm"],
             )
 
-            loss, v_loss, p_loss = combined_loss(pred_value, pred_policy, b["score"], b["result"], b["target_policy"])
+            loss, v_loss, p_loss = combined_loss(pred_value, pred_policy, b["result"], b["target_policy"])
             loss.backward()
 
             # Gradient clipping for stability

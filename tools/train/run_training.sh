@@ -170,7 +170,7 @@ else
 
     GEN_BIN="$TOOLS/generate_training_data/target/release/generate_training_data"
 
-    "$GEN_BIN" "$SF_BIN" "$EPD_FILE" "$VDATA_FILE" "$SF_DEPTH"
+    "$GEN_BIN" "$EPD_FILE" "$VDATA_FILE"
 fi
 
 # Quick file size sanity check

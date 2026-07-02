@@ -46,5 +46,6 @@ impl VortexWeights {
     }
 }
 
-pub static WEIGHTS: Mutex<VortexWeights> = Mutex::new(VortexWeights::new());
+static DUMMY_WEIGHTS: VortexWeights = VortexWeights::new();
+pub static mut WEIGHTS_PTR: *const VortexWeights = &DUMMY_WEIGHTS;
 pub static IS_NNUE_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

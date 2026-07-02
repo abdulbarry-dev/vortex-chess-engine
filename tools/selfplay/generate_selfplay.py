@@ -8,16 +8,16 @@ import sys
 GAMES_COUNT = 100
 CONCURRENCY = 4
 TIME_CONTROL = "60+0.6"  # Fast bullet
-ENGINE_CMD = "./v2_engine.sh"
+ENGINE_CMD = "node ../../dist/cli.js"
 PGN_OUTPUT = "selfplay.pgn"
-DATASET_OUTPUT = "dataset.jsonl"
+DATASET_OUTPUT = "selfplay.epd"
 
 def run_cutechess():
     print(f"Running {GAMES_COUNT} games at {TIME_CONTROL}...")
     cmd = [
         "cutechess-cli",
-        "-engine", f"cmd={ENGINE_CMD}", 'name="VORTEX-Zero-A"',
-        "-engine", f"cmd={ENGINE_CMD}", 'name="VORTEX-Zero-B"',
+        "-engine", "cmd=../../v2_engine.sh", 'name="VORTEX-Zero-A"',
+        "-engine", "cmd=../../v2_engine.sh", 'name="VORTEX-Zero-B"',
         "-each", "proto=uci", f"tc={TIME_CONTROL}",
         "-rounds", str(GAMES_COUNT),
         "-concurrency", str(CONCURRENCY),
@@ -51,25 +51,21 @@ def parse_pgn():
                 uci_move = move.uci()
                 fen = board.fen()
                 
-                # Append to dataset
-                dataset.append({
-                    "fen": fen,
-                    "policy_target": uci_move,
-                    "value_target": value_target
-                })
+                relative_value = value_target if board.turn == chess.WHITE else (1.0 - value_target)
+                
+                # Append to EPD dataset
+                dataset.append(f'{fen} c9 "{result}"')
                 
                 board.push(move)
 
     with open(DATASET_OUTPUT, "w") as out:
         for entry in dataset:
-            out.write(json.dumps(entry) + "\n")
+            out.write(entry + "\n")
             
-    print(f"Generated {len(dataset)} training samples.")
+    print(f"Generated {len(dataset)} training positions in {DATASET_OUTPUT}.")
 
 if __name__ == "__main__":
-    if not os.path.exists("v2_engine.sh"):
-        print("Error: v2_engine.sh not found. Run from the root of vortex-chess-engine.")
-        sys.exit(1)
+    # Removed check
         
     run_cutechess()
     parse_pgn()

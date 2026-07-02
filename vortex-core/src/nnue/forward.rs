@@ -1,6 +1,6 @@
 use crate::types::{Color, FT_SIZE, FT_HALF, FT_QUANT, FT_SHIFT, NUM_PHASE_BUCKETS, L2_SIZE, L3_SIZE};
 use crate::state::GameState;
-use crate::nnue::weights::WEIGHTS;
+//
 use crate::nnue::network::IncrementalNetwork;
 
 /// Determines the current game phase based on non-pawn material.
@@ -63,7 +63,7 @@ pub fn activate_ft(
 
 /// Full NNUE forward pass.
 pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i32 {
-    let w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let w = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
     if !w.is_loaded {
         return 0; // Fallback happens elsewhere
     }
@@ -89,7 +89,7 @@ pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i32 {
     //           = 1 / (255 × 255 × 64) ≈ 2.4e-7
     // The SCReLU product (a×b)>>9 is implicitly scaled by FT_QUANT²;
     // L1 weights are quantised by L1_QUANT. Both must be undone here.
-    let dequant = 1.0 / (FT_QUANT as f32 * FT_QUANT as f32 * w.l1_quant as f32);
+    let dequant = 512.0 / (FT_QUANT as f32 * FT_QUANT as f32 * w.l1_quant as f32);
 
     for i in 0..L2_SIZE {
         let mut sum = 0i32;
@@ -136,7 +136,7 @@ pub fn evaluate_nnue(state: &GameState, network: &IncrementalNetwork) -> i32 {
 /// This allows on-demand policy evaluation for generated pseudo-legal moves
 /// to save computation compared to computing the full 1858-dimensional vector.
 pub fn evaluate_policy_move(state: &GameState, network: &IncrementalNetwork, move_idx: usize) -> f32 {
-    let w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let w = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
     if !w.is_loaded || move_idx >= crate::types::POLICY_SIZE {
         return 0.0;
     }
@@ -160,7 +160,7 @@ pub fn evaluate_policy_move(state: &GameState, network: &IncrementalNetwork, mov
     // val = (sum as f32) * dequant + ...
     // Since policy weights are trained in float-space on [0,1] features, we need to divide by FT_QUANT^2.
     // SCReLU squares the values, so it's scaled by FT_QUANT * FT_QUANT.
-    let dequant = 1.0 / (FT_QUANT as f32 * FT_QUANT as f32);
+    let dequant = 512.0 / (FT_QUANT as f32 * FT_QUANT as f32);
 
     // Instead of i32 sum, we just sum in f32 since policy_weights are f32.
     let mut sum_f32 = 0.0f32;

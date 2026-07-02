@@ -138,12 +138,11 @@ pub fn evaluate(state: &mut GameState) -> i16 {
         let w_safety = evaluate_king_safety(state, Color::White);
         let b_safety = evaluate_king_safety(state, Color::Black);
         
-        if w_safety < b_safety {
-            score += (w_safety as f32 * 1.4) as i16 - b_safety;
-        } else if b_safety < w_safety {
-            score += w_safety - (b_safety as f32 * 1.4) as i16;
+        let safety_diff = w_safety - b_safety;
+        if safety_diff > 0 {
+            score += (safety_diff as f32 * 1.4) as i16;
         } else {
-            score += w_safety - b_safety;
+            score += (safety_diff as f32 * 1.4) as i16;
         }
 
         // 4. Mobility & Constriction
@@ -272,14 +271,14 @@ fn evaluate_pawn_tension(state: &GameState) -> i16 {
     let w_attacks_left = (white_pawns & !0x0101010101010101u64) << 7;
     let w_attacks_right = (white_pawns & !0x8080808080808080u64) << 9;
     
-    score -= (count_bits(w_attacks_left & black_pawns) as i16) * 10;
-    score -= (count_bits(w_attacks_right & black_pawns) as i16) * 10;
+    score += (count_bits(w_attacks_left & black_pawns) as i16) * 10;
+    score += (count_bits(w_attacks_right & black_pawns) as i16) * 10;
     
     let b_attacks_left = (black_pawns & !0x0101010101010101u64) >> 9;
     let b_attacks_right = (black_pawns & !0x8080808080808080u64) >> 7;
     
-    score += (count_bits(b_attacks_left & white_pawns) as i16) * 10;
-    score += (count_bits(b_attacks_right & white_pawns) as i16) * 10;
+    score -= (count_bits(b_attacks_left & white_pawns) as i16) * 10;
+    score -= (count_bits(b_attacks_right & white_pawns) as i16) * 10;
     
     score
 }
@@ -380,6 +379,8 @@ fn evaluate_blockade(state: &GameState) -> i16 {
     score += (locked_files as i16) * 20; 
     if locked_files >= 3 {
         score += 40; 
+    } else if locked_files <= -3 {
+        score -= 40;
     }
     
     score

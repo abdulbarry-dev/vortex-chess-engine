@@ -39,7 +39,7 @@
 └──────────────────────────────────────────────────────────────────┘
 
 External: Python Training Pipeline
-  Self-play → Stockfish eval labels → train PyTorch → export .vortex
+  Pure Self-play (TD-learning) → Game Outcomes (W/L/D) + Defensive Heuristics → train PyTorch → export .vortex
 ```
 
 ---
@@ -55,7 +55,7 @@ External: Python Training Pipeline
 | Per-phase bias | **Per-bucket L1/L2/L3 biases** | ~1 KB total. Acts as cheap phase-gating without weight duplication. |
 | FT activation | **Multiplicative (split×product)** | Quadratic feature expansion at FT. Enables tiny L2. ~75% sparsity for fast L1 pass. |
 | Eval fallback | **Full handcrafted eval port** | Usable engine before NNUE trained. Also useful for curriculum learning. |
-| Training label | **Stockfish eval (single scalar)** | Clean numeric target, all data sources unified, trivially analyzable. |
+| Training label | **Game Outcomes + Defensive Heuristics** | TD-learning on W/L/D, explicitly rewarding stability, fortress creation, and swindles. |
 | Contempt | **Three-tier gradient** | Score-driven: negative→zero→positive as position worsens. Resolves Swindle vs Draw-seeking cleanly. |
 | Weight format | **`.vortex` binary** | Compact, no external dependencies, sized for WASM byte array loading. |
 
@@ -406,7 +406,7 @@ pub fn evaluate(state: &GameState) -> i32 {
 
 ---
 
-## Phase 3: Training Pipeline (External)
+## Phase 3: Defensive RL Pipeline (External)
 
 ### 3.1 — Data Generation (`tools/generate_training_data/main.rs`)
 
@@ -415,13 +415,12 @@ Rust binary (not WASM — runs natively for speed).
 ```rust
 fn main() {
     // 1. Initialize engine with current .vortex weights
-    // 2. Play self-play games (Vortex vs Vortex, or vs Stockfish at low skill)
+    // 2. Play self-play games (Vortex vs Vortex with defensive curriculum)
     // 3. For each position in each game:
     //    - Record zobrist hash
     //    - Compute game phase
-    //    - Fork Stockfish subprocess, evaluate @ depth 18+ (Depth 12 is too shallow for positional labels)
-    //    - (Optional) Curriculum labeling: override score to 0 if Vortex detects a fortress
-    //    - Store: [hash: u64, score: i16, phase: u8, result: u8]
+    //    - Record defensive metrics (threat delta, volatility, tension)
+    //    - Store: [hash: u64, phase: u8, result: u8]
     // 4. Output .vdata binary format
 }
 ```
@@ -430,37 +429,35 @@ fn main() {
 ```
 File header:
   Magic: "VDAT" (4 bytes)
-  Version: u8 = 1
+  Version: u8 = 2
   Num positions: u32
 
 Per position (40 bytes):
   zobrist_hash: u64
-  stockfish_score: i16 (centipawns, from White's perspective)
   game_phase: u8 (0-15)
-  game_result: u8 (0=draw, 1=white_wins, 2=black_wins)
-  padding: 12 bytes (future use)
+  game_result: i8 (1=white_wins, -1=black_wins, 0=draw)
+  defensive_bonus: i16 (bonus for achieving fortress/high stability)
+  padding: 28 bytes
 ```
 
 ### 3.2 — Label Pipeline (`tools/label_positions/main.rs`)
 
-Processes any PGN / position file:
+Processes pure self-play games:
 ```rust
 fn main() {
-    // 1. Parse input PGN (CCRL, LC0, Lichess)
+    // 1. Parse input PGN (Vortex self-play)
     // 2. Extract all unique positions (dedup by zobrist hash)
-    // 3. Batch-spawn Stockfish, evaluate all positions
+    // 3. Assign TD labels based on game outcome and defensive bonuses
     // 4. Output .vdata
 }
 ```
 
 **Data sources:**
-| Source | Estimated Positions | Labeling Cost |
+| Source | Estimated Positions | Focus |
 |--------|-------------------|---------------|
-| Self-play (10K games) | ~5M | ~120 hours @ depth 18+ |
-| CCRL database | ~2M | ~40 hours |
-| LC0 training data | ~3M | ~30 hours |
-| Lichess online games | ~5M | ~50 hours |
-| **Total** | **~15M** | **~150 hours** (batchable, ~1 week) |
+| Self-play (10K games) | ~5M | Defensive stability, drawing worse positions |
+| Human GM Defensive Games | ~2M | Learning from Petrosian/Andersson |
+| **Total** | **~7M** | **Pure ideology training** |
 
 ### 3.3 — Python Training (`tools/train/train.py`)
 
@@ -504,13 +501,13 @@ class VortexNNUE(nn.Module):
 
         # L3 → scalar
         score = F.linear(l2, self.l3.weight, self.l3_bias(phase_bucket))
-        return score  # normalized to [-1, 1], multiply by 100 for centipawns
+        return torch.tanh(score)  # normalized to [-1, 1] representing W/L probability
 ```
 
-**Loss:** MSE(predicted, stockfish_target)
+**Loss:** Cross-entropy or MSE(predicted_outcome, actual_game_outcome + defensive_bonus)
 **Optimizer:** AdamW, lr=3e-4, batch=4096
-**Training:** 10 epochs over ~15M positions (~150M total samples)
-**Hardware:** GPU recommended (RTX 3090+ ≈ 2 days for 10 epochs)
+**Training:** 10 epochs over ~7M positions
+**Hardware:** GPU recommended
 
 ### 3.4 — Export (`tools/train/export.py`)
 
@@ -950,3 +947,38 @@ Week 12    Phase 5         Contempt system integration
 | `tools/train/export.py` | **NEW** | 3 |
 | `src/lib.rs` | **EDIT** (WASM bindings) | 6 |
 | `Cargo.toml` | **EDIT** (add serde-wasm-bindgen, rayon) | 6 |
+
+---
+
+## Phase 7: Next-Level Optimization Roadmap (Elo Maximization)
+
+This phase integrates advanced pruning, extensions, move ordering, and multithreading concepts crucial for reaching top-tier Elo. Ranked by ROI:
+
+### Priority 1: Move Ordering & Filtering Foundations (High ROI)
+- **Static Exchange Evaluation (SEE):** Unlocks safe pruning, gating, and precise capture ordering. Eliminates losing captures before they are searched.
+- **Continuation History (1-ply & 2-ply):** Tracks cutoff frequency based on recent move sequences (`[prev_move][current_move]`). More precise than flat history.
+- **Capture History:** Track `[piece][to][captured_piece]` to dynamically weight captures alongside MVV-LVA.
+
+### Priority 2: Critical Pruning & Extensions (Massive Node Savings)
+- **Singular Extensions:** (+40-50 Elo) When the TT move vastly outscores alternatives, extend its depth to resolve forced tactical sequences and prevent horizon effects.
+- **Reverse Futility Pruning (RFP) / Static Null Move Pruning:** (+15-20 Elo) At low depths, if `static_eval - margin >= beta`, prune immediately without searching children.
+- **Late Move Pruning (LMP):** At low depth, skip quiet moves entirely after a certain move-count threshold.
+- **Razoring:** Near leaf nodes, if `static_eval + margin < alpha`, drop straight into quiescence.
+- **Mate Distance Pruning:** Clip alpha/beta to `[-MATE + ply, MATE - ply]`.
+- **ProbCut:** Do a shallow search with a shifted window. If it fails high, prune the full depth search.
+- **Check Extensions:** Extend search +1 ply for safe checks (where SEE >= 0).
+- **Internal Iterative Reductions (IIR):** Reduce depth on cold nodes (no TT move) rather than searching with poor move ordering.
+
+### Priority 3: Time Management & Multithreading (Real-World Match Strength)
+- **Time Management Logic:** 
+  - Soft bounds (stop at depth boundaries) vs Hard bounds (abort mid-search).
+  - Reduce time allocation if the best move is highly stable across iterations.
+  - Expand time allocation if node share on the best move is low (unstable).
+- **Lazy SMP:** Multi-threaded search via Web Workers and `SharedArrayBuffer` for TT. Multiple threads search the root with slight depth/ordering jitter. (+1.6x throughput per core doubling).
+
+### Priority 4: NNUE & Infra Refinements
+- **King Bucket Indexing (HalfKA/HalfKAv2):** Feature index by `(king_sq, piece_sq, piece_type)` for king-conditional piece values.
+- **Accumulator Refresh Strategies:** Force full recompute every N nodes or on King bucket boundary crossings to prevent WASM incremental float precision drift.
+- **Multi-perspective Accumulators:** Maintain White and Black accumulators concurrently instead of recomputing on turn flip.
+- **Syzygy Tablebases:** Probe DTZ/WDL mid-search when pieces <= 7, not just at root.
+- **Texel Tuning:** Gradient-descent tuning of residual handcrafted classical evaluation terms (like mobility).

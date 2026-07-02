@@ -113,6 +113,12 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
     ctrl.nodes = 0;
     tt.new_search();
 
+    let original_alpha = alpha;
+    let mut tt_move = Move(0);
+    if let Some(entry) = tt.probe(state.hash) {
+        tt_move = Move(entry.best_move);
+    }
+
     let mut best_move = Move(0);
     let mut best_score = -INFINITY;
 
@@ -157,7 +163,7 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
 
     let mut move_scores = [0i32; 256];
     for i in 0..move_list.count {
-        move_scores[i] = score_move(move_list.moves[i], state, Move(0), 0, &killers, &history, &swindle, contempt);
+        move_scores[i] = score_move(move_list.moves[i], state, tt_move, 0, &killers, &history, &swindle, contempt);
     }
     for i in 1..move_list.count {
         let mut j = i;
@@ -223,7 +229,16 @@ pub fn search_root_internal(state: &mut GameState, depth: i8, mut alpha: i16, be
     // but in a full iterative deepening framework it tracks across iterations.
 
     if best_move.0 != 0 {
-        tt.store(state.hash, depth, best_score, TT_EXACT, best_move);
+        let bound = if best_score <= original_alpha { TT_ALPHA }
+                   else if best_score >= beta { TT_BETA }
+                   else { TT_EXACT };
+        let mut score_to_store = best_score;
+        if score_to_store > MATE_SCORE - 100 {
+            score_to_store += 0;
+        } else if score_to_store < -MATE_SCORE + 100 {
+            score_to_store -= 0;
+        }
+        tt.store(state.hash, depth, score_to_store, bound, best_move);
     }
 
     SearchResult {
@@ -533,7 +548,15 @@ fn quiescence_search(state: &mut GameState, mut alpha: i16, beta: i16, tt: &mut 
     if stand_pat >= beta { return beta; }
     if alpha < stand_pat { alpha = stand_pat; }
 
-    let mut move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
+    let mut raw_move_list = generate_pseudo_legal_moves(&state.board, state.side_to_move, state.castling_rights, state.en_passant_sq);
+    let mut move_list = crate::movegen::MoveList { moves: [Move(0); 256], count: 0 };
+    for i in 0..raw_move_list.count {
+        let m = raw_move_list.moves[i];
+        if m.is_capture() || m.is_promotion() {
+            move_list.moves[move_list.count] = m;
+            move_list.count += 1;
+        }
+    }
 
     let swindle = SwindleMode::new(stand_pat);
     let contempt = crate::contempt::compute_contempt(stand_pat);
@@ -554,7 +577,6 @@ fn quiescence_search(state: &mut GameState, mut alpha: i16, beta: i16, tt: &mut 
         if ctrl.stop || ctrl.time_up() { ctrl.stop = true; break; }
 
         let m = move_list.moves[i];
-        if !m.is_capture() && !m.is_promotion() { continue; }
 
         if stand_pat + 1100 < alpha { continue; }
 

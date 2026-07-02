@@ -58,3 +58,45 @@ Provide a detailed diagnostic report artifact. Instead of autonomously modifying
 - [ ] The team delivers a detailed artifact listing at least 3 distinct, verifiable weak points in the core Rust engine.
 - [ ] For each weak point, a concrete code patch or snippet is provided.
 - [ ] The proposed fixes must be syntactically valid Rust and must theoretically not break the existing test suite (`cargo test`).
+
+## 2026-07-01T21:54:10Z
+
+Analyse the core Rust engine (VORTEX-2.0) and the Python training pipeline to identify and fix any remaining bugs, weak points in the evaluation/search functions, and ensure the self-play reinforcement learning pipeline is robust.
+
+Working directory: /home/vortex/Desktop/Projects/vortex-chess-engine
+Integrity mode: development
+
+## Requirements
+
+### R1. Deep Codebase Analysis
+Conduct a thorough analysis of the engine's core Rust components (`vortex-core/src/search`, `vortex-core/src/nnue`, etc.) and the Python training pipeline (`tools/train`, `tools/selfplay`). Look specifically for logical flaws, missing standard chess heuristics, RL data generation issues, and algorithmic bottlenecks.
+
+### R2. Diagnostic Report & Patches
+Provide a detailed diagnostic report artifact listing any discovered weak points or bugs. For each issue, provide concrete code patches, snippets, and step-by-step explanations so they can be manually reviewed and applied.
+
+## Acceptance Criteria
+
+### Diagnostics
+- [ ] The team delivers a detailed artifact listing at least 3 distinct, verifiable weak points or bugs across the Rust core and Python training pipeline.
+- [ ] For each weak point, a concrete code patch or snippet is provided.
+- [ ] The proposed fixes must be syntactically valid (Rust/Python) and must theoretically not break the existing test suites (`cargo test`, `npm test`).
+
+## 2026-07-02T08:37:52Z
+
+Review and audit the Vortex Chess Engine's NNUE architecture, search evaluation mechanisms, and reinforcement learning pipeline to identify and document any weak points or bottlenecks that could limit Elo progression.
+
+Working directory: /home/vortex/Desktop/Projects/vortex-chess-engine
+Integrity mode: development
+
+## Requirements
+
+### R1. Comprehensive Audit Report
+Deliver a detailed markdown report analyzing the NNUE architecture, search evaluation, and RL training pipeline. The report must highlight theoretical weaknesses, structural flaws, or performance bottlenecks, and provide concrete recommendations for fixes.
+
+## Acceptance Criteria
+
+### Audit Completeness
+- [ ] A markdown report is saved to `audit_report.md` in the working directory.
+- [ ] The report contains distinct sections analyzing: 1) NNUE Architecture, 2) Search Evaluation, and 3) RL Pipeline.
+- [ ] For each section, the report identifies at least one concrete bottleneck or theoretical weak point and provides a specific recommendation for addressing it.
+

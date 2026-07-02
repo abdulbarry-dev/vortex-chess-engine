@@ -312,9 +312,9 @@ fn test_vortex_round_trip() {
 
     // Unload and reload from bytes.
     {
-        let mut w = vortex_core::nnue::weights::WEIGHTS.lock()
-            .unwrap_or_else(|e| e.into_inner());
-        w.is_loaded = false;
+        unsafe {
+            vortex_core::nnue::weights::WEIGHTS_PTR = Box::into_raw(Box::new(vortex_core::nnue::weights::VortexWeights::new()));
+        }
         vortex_core::nnue::weights::IS_NNUE_LOADED
             .store(false, std::sync::atomic::Ordering::Relaxed);
     }

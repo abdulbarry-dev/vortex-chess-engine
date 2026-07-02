@@ -46,7 +46,7 @@ def split_epd(epd_path: str, n_jobs: int, tmp_dir: str) -> list[str]:
 def run_generator(sf_bin: str, gen_bin: str, epd: str, vdata: str, depth: int, job_id: int,
                   progress: dict, lock: threading.Lock):
     """Run a single generate_training_data process and track progress."""
-    cmd = [gen_bin, sf_bin, epd, vdata, str(depth)]
+    cmd = [gen_bin, epd, vdata]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     count = 0

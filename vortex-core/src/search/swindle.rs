@@ -43,15 +43,16 @@ impl SwindleMode {
         let us_pawns = state.board.get_pieces(state.side_to_move, PieceType::Pawn);
         let them_pawns = state.board.get_pieces(state.side_to_move.opposite(), PieceType::Pawn);
         
-        // Simple pawn tension
-        let mut tension = 0;
-        let left_attacks = (us_pawns & !0x0101010101010101) << 7;
-        let right_attacks = (us_pawns & !0x8080808080808080) << 9;
+        let (left_attacks, right_attacks) = if state.side_to_move == crate::types::Color::White {
+            ((us_pawns & !0x0101010101010101) << 7, (us_pawns & !0x8080808080808080) << 9)
+        } else {
+            ((us_pawns & !0x0101010101010101) >> 9, (us_pawns & !0x8080808080808080) >> 7)
+        };
         
 
         // We will just approximate tension as pawn attacks intersecting opponent pawns
         let tension_mask = (left_attacks | right_attacks) & them_pawns;
-        tension += tension_mask.count_ones() as i32;
+        let tension = tension_mask.count_ones() as i32;
         
         ((mobility as i32) * 2 + tension * 5).min(150)
     }

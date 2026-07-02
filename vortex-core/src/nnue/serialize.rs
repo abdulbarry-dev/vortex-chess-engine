@@ -1,4 +1,4 @@
-use crate::nnue::weights::{WEIGHTS, IS_NNUE_LOADED};
+use crate::nnue::weights::IS_NNUE_LOADED;
 use crate::types::{FT_SIZE, L2_SIZE, L3_SIZE, NUM_PHASE_BUCKETS,
                    PST_FEATURES, THREAT_FEATURES, POLICY_SIZE};
 
@@ -77,7 +77,7 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
     }
 
     let mut offset = HEADER_BYTES;
-    let mut w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut w = Box::new(crate::nnue::weights::VortexWeights::new());
 
     macro_rules! read_i16 {
         () => {{
@@ -194,6 +194,9 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
     }
 
     w.is_loaded = true;
+    unsafe {
+        crate::nnue::weights::WEIGHTS_PTR = Box::into_raw(w);
+    }
     IS_NNUE_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
     true
 }
@@ -206,7 +209,7 @@ pub fn load_vortex_weights(buffer: &[u8]) -> bool {
 /// Returns `None` if no weights are loaded.
 /// Used for round-trip testing before the Python exporter is available.
 pub fn save_vortex_weights() -> Option<Vec<u8>> {
-    let w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let w = unsafe { &*crate::nnue::weights::WEIGHTS_PTR };
     if !w.is_loaded { return None; }
 
     let pst_weight_bytes = PST_FEATURES * FT_SIZE * 2; // i16 = 2 bytes each
@@ -262,7 +265,7 @@ pub fn save_vortex_weights() -> Option<Vec<u8>> {
 /// so that `refresh_pst` and the forward pass work without a real weight file.
 /// Used by NNUE unit tests. Does NOT mark the engine as "loaded" for HCE tests.
 pub fn init_vortex_empty() {
-    let mut w = WEIGHTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut w = Box::new(crate::nnue::weights::VortexWeights::new());
     // PST
     w.pst_biases = [0; FT_SIZE];
     w.pst_weights.resize(PST_FEATURES * FT_SIZE, 0);
@@ -285,6 +288,9 @@ pub fn init_vortex_empty() {
     w.policy_biases.resize(POLICY_SIZE, 0.0);
 
     w.is_loaded = true;
+    unsafe {
+        crate::nnue::weights::WEIGHTS_PTR = Box::into_raw(w);
+    }
     IS_NNUE_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
